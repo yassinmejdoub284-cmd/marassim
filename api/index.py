@@ -31,6 +31,46 @@ from flask import Flask, request      # noqa: E402
 
 app = Flask(__name__)                 # ← l'objet que Vercel cherche
 
+
+class _StripVercelPrefix:
+    """Rend l'application insensible au préfixe ajouté par Vercel.
+
+    Vercel réécrit `/` en `/api/index` avant d'appeler la fonction : Flask
+    recevait un chemin qu'aucune route ne déclarait et répondait 404. On
+    retire ce préfixe pour que `/`, `/regles`… fonctionnent aussi bien en
+    local qu'en ligne, quelle que soit la façon dont Vercel route.
+    """
+
+    PREFIXES = ("/api/index.py", "/api/index", "/api")
+
+    def __init__(self, wsgi_app):
+        self._app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        path = environ.get("PATH_INFO", "") or "/"
+        for pref in self.PREFIXES:
+            if path == pref:
+                environ["PATH_INFO"] = "/"
+                break
+            if path.startswith(pref + "/"):
+                environ["PATH_INFO"] = path[len(pref):]
+                break
+        return self._app(environ, start_response)
+
+
+app.wsgi_app = _StripVercelPrefix(app.wsgi_app)
+
+
+@app.errorhandler(404)
+def _introuvable(_):
+    return page("", """<div class="card"><h2>Page introuvable</h2>
+<p class="hint">Cette adresse n'existe pas dans la démonstration.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<a href="/" class="tag">Calendrier</a>
+<a href="/reservations" class="tag">Réservations</a>
+<a href="/regles" class="tag">Règles</a>
+<a href="/tester" class="tag">Tester une règle</a></div></div>"""), 404
+
 MOIS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet",
         "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
 JOURS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
