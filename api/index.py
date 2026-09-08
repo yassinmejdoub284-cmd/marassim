@@ -156,7 +156,10 @@ footer{color:var(--td);font-size:12px;text-align:center;padding:26px 18px}
 
 def page(active, body):
     tabs = [("/", "Calendrier"), ("/reservations", "Réservations"),
-            ("/regles", "Règles"), ("/tester", "Tester une règle")]
+            ("/acomptes", "Acomptes"), ("/journal", "Caisse"),
+            ("/charges", "Charges"), ("/employes", "Employés"),
+            ("/pointage", "Pointage"), ("/regles", "Règles"),
+            ("/tester", "Tester")]
     nav = "".join(
         f'<a href="{h}" class="{"on" if h == active else ""}">{t}</a>'
         for h, t in tabs)
@@ -361,6 +364,205 @@ Almes 16:00→19:00 (hors créneau), ou Chichkhane 15:00→18:00 avec violon
 <div><button type="submit">Vérifier</button></div>
 </form>{verdict}</div>"""
     return page("/tester", body)
+
+
+
+def _euro(v):
+    return f"{float(v or 0):,.0f} DT".replace(",", " ")
+
+
+@app.route("/acomptes")
+def acomptes():
+    resas = sorted(database.get_all_reservations(),
+                   key=lambda r: r["date_evenement"])
+    tot_f = tot_p = 0.0
+    lignes = ""
+    for r in resas:
+        forfait = float(r.get("forfait") or 0)
+        paye = sum(float(r.get(f"acompte{i}") or 0) for i in range(1, 4))
+        reste = forfait - paye
+        tot_f += forfait; tot_p += paye
+        pct = int(paye / forfait * 100) if forfait else 0
+        barre = (f'<div style="background:var(--sf2);border-radius:99px;height:7px;'
+                 f'overflow:hidden;min-width:90px"><div style="width:{min(pct,100)}%;'
+                 f'height:100%;background:{"var(--ok)" if reste<=0 else "var(--pr)"}">'
+                 f'</div></div>')
+        details = " · ".join(
+            f'{_euro(r.get(f"acompte{i}"))} le {r.get(f"date_acompte{i}")}'
+            for i in range(1, 4) if r.get(f"acompte{i}"))
+        c = COUL.get(r["salle"], "#64748B")
+        lignes += f"""<tr><td><code>{r.get('num_bon') or ''}</code></td>
+<td>{r.get('nom_client') or ''}<br><span style="color:var(--tm);font-size:11.5px">
+{r['date_evenement']} · <span class="pill" style="background:{c};font-size:10px">
+{r['salle']}</span></span></td>
+<td style="font-size:11.5px;color:var(--tm)">{details or '—'}</td>
+<td style="text-align:right">{_euro(forfait)}</td>
+<td style="text-align:right">{_euro(paye)}</td>
+<td style="text-align:right;font-weight:700;
+color:{'var(--ok)' if reste<=0 else 'var(--tx)'}">{_euro(reste)}</td>
+<td style="min-width:110px">{barre}<span style="font-size:11px;color:var(--tm)">
+{pct}%</span></td></tr>"""
+    reste_tot = tot_f - tot_p
+    body = f"""<div class="card"><h2>Acomptes et soldes</h2>
+<p class="hint">Suivi des encaissements par contrat. Dans l'application, les
+acomptes s'ajoutent depuis le module « Ajouter un acompte ».</p>
+<div class="row" style="margin-bottom:16px">
+<div class="fld"><label>Total forfaits</label>
+<div style="font-size:21px;font-weight:700">{_euro(tot_f)}</div></div>
+<div class="fld"><label>Encaissé</label>
+<div style="font-size:21px;font-weight:700;color:var(--ok)">{_euro(tot_p)}</div></div>
+<div class="fld"><label>Reste à encaisser</label>
+<div style="font-size:21px;font-weight:700;color:var(--wa)">{_euro(reste_tot)}</div></div>
+</div>
+<div style="overflow-x:auto"><table><tr><th>N° bon</th><th>Client</th>
+<th>Versements</th><th style="text-align:right">Forfait</th>
+<th style="text-align:right">Payé</th><th style="text-align:right">Reste</th>
+<th>Avancement</th></tr>{lignes}</table></div></div>"""
+    return page("/acomptes", body)
+
+
+@app.route("/journal")
+def journal():
+    y, m = _mois_courant()
+    import calendar as cal
+    debut = date(y, m, 1).isoformat()
+    fin = date(y, m, cal.monthrange(y, m)[1]).isoformat()
+    j = database.get_journal_caisse(debut, fin)
+    rec, chg = j["recettes"], j["charges"]
+    tr = sum(x["montant"] for x in rec)
+    tc = sum(x["montant"] for x in chg)
+
+    lr = "".join(f"""<tr><td>{x['date']}</td><td>{x['designation']}</td>
+<td><code>{x.get('num_caisse') or ''}</code></td>
+<td style="text-align:right;color:var(--ok);font-weight:700">
++{_euro(x['montant'])}</td></tr>""" for x in rec) or \
+        '<tr><td colspan="4" class="empty">Aucune recette sur la période.</td></tr>'
+    lc = "".join(f"""<tr><td>{x['date']}</td><td>{x['designation']}</td>
+<td style="text-align:right;color:var(--ko);font-weight:700">
+−{_euro(x['montant'])}</td></tr>""" for x in chg) or \
+        '<tr><td colspan="3" class="empty">Aucune charge sur la période.</td></tr>'
+
+    prev = date(y, m, 1) - timedelta(days=1)
+    nxt = date(y, m, cal.monthrange(y, m)[1]) + timedelta(days=1)
+    solde = tr - tc
+    body = f"""<div class="card">
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+<h2 style="margin:0">Journal de caisse — {MOIS[m-1]} {y}</h2>
+<div style="margin-left:auto;display:flex;gap:6px">
+<a href="/journal?y={prev.year}&m={prev.month}" class="tag">‹ {MOIS[prev.month-1][:4]}</a>
+<a href="/journal?y={nxt.year}&m={nxt.month}" class="tag">{MOIS[nxt.month-1][:4]} ›</a></div></div>
+<p class="hint">Recettes = acomptes en espèces avec numéro de caisse. Charges =
+dépenses saisies sur la période.</p>
+<div class="row" style="margin-bottom:16px">
+<div class="fld"><label>Recettes</label>
+<div style="font-size:21px;font-weight:700;color:var(--ok)">{_euro(tr)}</div></div>
+<div class="fld"><label>Charges</label>
+<div style="font-size:21px;font-weight:700;color:var(--ko)">{_euro(tc)}</div></div>
+<div class="fld"><label>Solde</label>
+<div style="font-size:21px;font-weight:700;
+color:{'var(--ok)' if solde>=0 else 'var(--ko)'}">{_euro(solde)}</div></div></div>
+<div class="row" style="align-items:flex-start">
+<div style="flex:1 1 340px"><h2 style="font-size:13px">Recettes</h2>
+<table><tr><th>Date</th><th>Désignation</th><th>Caisse</th>
+<th style="text-align:right">Montant</th></tr>{lr}</table></div>
+<div style="flex:1 1 300px"><h2 style="font-size:13px">Charges</h2>
+<table><tr><th>Date</th><th>Désignation</th>
+<th style="text-align:right">Montant</th></tr>{lc}</table></div></div></div>"""
+    return page("/journal", body)
+
+
+@app.route("/charges")
+def charges():
+    a, b = database.get_all_charges(), database.get_all_charges_omar()
+
+    def bloc(titre, rows, hint):
+        tot = sum(float(r["montant"]) for r in rows)
+        lignes = "".join(f"""<tr><td>{r['date_encaissement']}</td>
+<td>{r['designation']}</td><td style="text-align:right;font-weight:700">
+{_euro(r['montant'])}</td></tr>""" for r in rows) or \
+            '<tr><td colspan="3" class="empty">Aucune charge.</td></tr>'
+        return f"""<div style="flex:1 1 330px"><h2 style="font-size:14px">{titre}</h2>
+<p class="hint">{hint}</p>
+<table><tr><th>Date</th><th>Désignation</th>
+<th style="text-align:right">Montant</th></tr>{lignes}
+<tr><td colspan="2" style="font-weight:700">Total</td>
+<td style="text-align:right;font-weight:700;color:var(--ko)">{_euro(tot)}</td></tr>
+</table></div>"""
+
+    body = f"""<div class="card"><h2>Charges</h2>
+<p class="hint">Deux caisses distinctes, comme dans l'application.</p>
+<div class="row" style="align-items:flex-start">
+{bloc('Caisse principale', a, 'Dépenses du complexe.')}
+{bloc('Caisse Omar', b, 'Dépenses suivies séparément.')}
+</div></div>"""
+    return page("/charges", body)
+
+
+@app.route("/employes")
+def employes():
+    emps = database.get_all_employees()
+    if not emps:
+        return page("/employes",
+                    '<div class="card"><div class="empty">Aucun employé.</div></div>')
+    lignes = ""
+    for e in emps:
+        fiche = database.get_employee_fiche_data(e["id"]) or {}
+        du = fiche.get("total_du", 0) or 0
+        paye = fiche.get("total_paye", 0) or 0
+        reste = du - paye
+        nb = len(fiche.get("pointages", []) or [])
+        typ = (e.get("type_ouvrier") or "jour").lower()
+        badge = ('<span class="tag vi">nuit</span>' if typ == "nuit"
+                 else '<span class="tag">jour</span>')
+        lignes += f"""<tr><td><b>{e['prenom']} {e['nom']}</b></td>
+<td>{e.get('role') or ''}</td><td>{badge}</td>
+<td style="text-align:right">{_euro(e.get('salaire_journalier'))}</td>
+<td style="text-align:right">{_euro(e.get('prix_heure_supp'))}</td>
+<td style="text-align:center">{nb}</td>
+<td style="text-align:right">{_euro(du)}</td>
+<td style="text-align:right">{_euro(paye)}</td>
+<td style="text-align:right;font-weight:700;
+color:{'var(--ok)' if reste<=0 else 'var(--wa)'}">{_euro(reste)}</td></tr>"""
+    body = f"""<div class="card"><h2>Employés</h2>
+<p class="hint">Tarifs, pointages comptabilisés et solde dû — calculés par
+<code>database.get_employee_fiche_data()</code>, la même fonction que
+l'application.</p>
+<div style="overflow-x:auto"><table><tr><th>Employé</th><th>Poste</th><th>Type</th>
+<th style="text-align:right">Salaire/jour</th><th style="text-align:right">H. supp</th>
+<th style="text-align:center">Pointages</th><th style="text-align:right">Total dû</th>
+<th style="text-align:right">Payé</th><th style="text-align:right">Reste</th></tr>
+{lignes}</table></div></div>"""
+    return page("/employes", body)
+
+
+@app.route("/pointage")
+def pointage():
+    rows = database.get_all_pointage()
+    emps = {e["id"]: e for e in database.get_all_employees()}
+    if not rows:
+        return page("/pointage",
+                    '<div class="card"><div class="empty">Aucun pointage.</div></div>')
+    label = {"midi": "Midi", "apres_midi": "Après-midi", "soiree": "Soirée",
+             "journee_complete": "Journée complète"}
+    lignes = ""
+    for r in sorted(rows, key=lambda x: (x["date_pointage"], x["employee_id"]),
+                    reverse=True):
+        e = emps.get(r["employee_id"], {})
+        per = label.get(r.get("periode") or "", r.get("periode") or "—")
+        supp = float(r.get("heures_supplementaires") or 0)
+        lignes += f"""<tr><td>{r['date_pointage']}</td>
+<td><b>{e.get('prenom','')} {e.get('nom','')}</b><br>
+<span style="color:var(--tm);font-size:11.5px">{e.get('role','')}</span></td>
+<td><span class="tag">{per}</span></td>
+<td>{r.get('heure_arrivee') or '—'} → {r.get('heure_depart') or '—'}</td>
+<td style="text-align:right">{supp:.0f} h</td></tr>"""
+    body = f"""<div class="card"><h2>Pointage</h2>
+<p class="hint">{len(rows)} pointages enregistrés. Dans l'application, la saisie
+se fait en trois étapes : type d'ouvrier, période, puis sélection des employés.</p>
+<div style="overflow-x:auto"><table><tr><th>Date</th><th>Employé</th>
+<th>Période</th><th>Horaires</th><th style="text-align:right">H. supp</th></tr>
+{lignes}</table></div></div>"""
+    return page("/pointage", body)
 
 
 if __name__ == "__main__":
