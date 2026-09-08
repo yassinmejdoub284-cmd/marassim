@@ -5,7 +5,10 @@ import sqlite3
 import hashlib
 import os
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "marassim.db")
+import db as _db
+import config as _config
+
+DB_PATH = _config.CONF["path"]   # compatibilité (mode SQLite local)
 
 # ═══════════════════════════════════════════════════════════════════
 #  SCHEMA & INITIALISATION
@@ -56,9 +59,7 @@ ALL_MODULES = [
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return _db.connect()
 
 
 def init_access_db():
@@ -90,10 +91,9 @@ def init_access_db():
             "SELECT module_name FROM module_access WHERE user_id=?", (row["id"],))}
         for module in ALL_MODULES:
             if module not in have:
-                conn.execute(
-                    "INSERT OR REPLACE INTO module_access "
-                    "(user_id, module_name, can_access) VALUES (?, ?, 1)",
-                    (row["id"], module))
+                _db.upsert(conn, "module_access", ("user_id", "module_name"),
+                           {"user_id": row["id"], "module_name": module,
+                            "can_access": 1})
     conn.commit()
 
     conn.close()
@@ -218,11 +218,8 @@ def change_password(user_id: int, old_password: str, new_password: str) -> bool:
 def grant_module_access(user_id: int, module_name: str):
     """Accorde l'accès à un module pour un utilisateur."""
     conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO module_access (user_id, module_name, can_access) "
-        "VALUES (?, ?, 1)",
-        (user_id, module_name)
-    )
+    _db.upsert(conn, "module_access", ("user_id", "module_name"),
+               {"user_id": user_id, "module_name": module_name, "can_access": 1})
     conn.commit()
     conn.close()
 
@@ -230,11 +227,8 @@ def grant_module_access(user_id: int, module_name: str):
 def revoke_module_access(user_id: int, module_name: str):
     """Révoque l'accès à un module pour un utilisateur."""
     conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO module_access (user_id, module_name, can_access) "
-        "VALUES (?, ?, 0)",
-        (user_id, module_name)
-    )
+    _db.upsert(conn, "module_access", ("user_id", "module_name"),
+               {"user_id": user_id, "module_name": module_name, "can_access": 0})
     conn.commit()
     conn.close()
 

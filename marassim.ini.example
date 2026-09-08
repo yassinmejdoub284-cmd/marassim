@@ -1,0 +1,29 @@
+; ══════════════════════════════════════════════════════════════════
+;  marassim.ini — configuration de la base de données
+; ══════════════════════════════════════════════════════════════════
+;  Copie ce fichier en « marassim.ini » (sans .example) à côté de
+;  main.py, puis adapte les valeurs.
+;
+;  Sans marassim.ini, l'application fonctionne en SQLite local :
+;  exactement le comportement d'origine, mono-poste.
+;
+;  ⚠ marassim.ini contient un mot de passe : il est exclu de Git.
+; ══════════════════════════════════════════════════════════════════
+
+[database]
+
+; ── Mode mono-poste (défaut) ──────────────────────────────────────
+; backend = sqlite
+; path    = marassim.db
+
+; ── Mode multi-poste ──────────────────────────────────────────────
+; À mettre sur CHAQUE poste, avec l'adresse IP du PC serveur.
+backend  = postgres
+host     = 192.168.1.10
+port     = 5432
+name     = marassim
+user     = marassim
+password = CHANGE_MOI
+
+; Secondes d'attente avant de déclarer le serveur injoignable
+connect_timeout = 8

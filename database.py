@@ -4,7 +4,12 @@ database.py — Couche d'accès aux données (SQLite) pour Marassim.
 import sqlite3
 import os
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "marassim.db")
+import db as _db
+import config as _config
+
+# Conservé pour compatibilité (chemin SQLite local). En mode PostgreSQL,
+# la connexion est décrite par marassim.ini — voir config.py.
+DB_PATH = _config.CONF["path"]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS reservations (
@@ -112,18 +117,18 @@ _V2_COLUMNS = [
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Connexion à la base active : SQLite en local, ou PostgreSQL partagé
+    si marassim.ini le demande. Voir db.py / config.py."""
+    return _db.connect()
 
 
 def _migrate(conn):
-    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(reservations)")}
+    existing_cols = _db.table_columns(conn, "reservations")
     for col_name, col_type in _V2_COLUMNS:
         if col_name not in existing_cols:
             conn.execute(f"ALTER TABLE reservations ADD COLUMN {col_name} {col_type}")
     # Employees table migrations
-    emp_cols = {row["name"] for row in conn.execute("PRAGMA table_info(employees)")}
+    emp_cols = _db.table_columns(conn, "employees")
     if "type_ouvrier" not in emp_cols:
         conn.execute("ALTER TABLE employees ADD COLUMN type_ouvrier TEXT DEFAULT 'jour'")
     if "salaire_minimum" not in emp_cols:
@@ -343,6 +348,38 @@ def insert_reservation(data: dict) -> int:
     new_id = cur.lastrowid
     conn.close()
     return new_id
+
+
+def insert_reservation_with_bon(data: dict, annee: int = None, prefix: str = "BON") -> tuple:
+    """Insère une réservation ET son numéro de bon dans UNE SEULE transaction.
+
+    L'ancienne version faisait l'INSERT et l'UPDATE sur deux connexions
+    distinctes : deux postes qui enregistraient en même temps pouvaient
+    obtenir le même numéro, ou laisser une réservation sans numéro si le
+    poste plantait entre les deux. Ici tout est validé ou rien ne l'est.
+
+    Retourne (id, num_bon).
+    """
+    from datetime import date as _date
+    annee = annee or _date.today().year
+    payload = {k: v for k, v in data.items() if k != "num_bon"}
+    cols = list(payload)
+    sql = (f"INSERT INTO reservations ({','.join(cols)}) "
+           f"VALUES ({','.join(['?'] * len(cols))})")
+    conn = get_connection()
+    try:
+        cur = conn.execute(sql, [payload[c] for c in cols])
+        new_id = cur.lastrowid
+        num_bon = f"{prefix}-{annee}-{new_id:04d}"
+        conn.execute("UPDATE reservations SET num_bon=? WHERE id=?",
+                     (num_bon, new_id))
+        conn.commit()
+        return new_id, num_bon
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def delete_reservation(res_id: int):

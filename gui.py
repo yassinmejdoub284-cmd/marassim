@@ -1542,26 +1542,18 @@ class NewReservationTab(tk.Frame):
         )
 
         new_ids = []
-        conn = database.get_connection()
-        try:
-            for salle in salles_to_save:
-                res = {
-                    "salle":          salle,
-                    "date_evenement": date_str,
-                    "heure_debut":    heure_debut,
-                    "heure_fin":      heure_fin,
-                    "nom_client":     nom,
-                    "is_temporaire":  1,
-                    "num_bon":        None,
-                    "date_signature": date.today().isoformat(),
-                }
-                new_id = database.insert_reservation(res)
-                conn.execute("UPDATE reservations SET num_bon=? WHERE id=?",
-                             (f"TMP-{date.today().year}-{new_id:04d}", new_id))
-                new_ids.append(new_id)
-            conn.commit()
-        finally:
-            conn.close()
+        for salle in salles_to_save:
+            res = {
+                "salle":          salle,
+                "date_evenement": date_str,
+                "heure_debut":    heure_debut,
+                "heure_fin":      heure_fin,
+                "nom_client":     nom,
+                "is_temporaire":  1,
+                "date_signature": date.today().isoformat(),
+            }
+            new_id, _ = database.insert_reservation_with_bon(res, prefix="TMP")
+            new_ids.append(new_id)
 
         ids_str   = ", ".join(f"#{i}" for i in new_ids)
         salles_str = ", ".join(salles_to_save)
@@ -1668,19 +1660,14 @@ class NewReservationTab(tk.Frame):
                 return
 
         # Insert one reservation per selected salle
+        # Une transaction par réservation : l'ID et le numéro de bon sont
+        # attribués ensemble, ce qui empêche deux postes d'obtenir le même
+        # numéro en enregistrant au même moment.
         new_ids = []
-        conn = database.get_connection()
-        try:
-            for salle in salles_to_save:
-                res = dict(base_res); res["salle"] = salle
-                res["num_bon"] = None
-                new_id = database.insert_reservation(res)
-                conn.execute("UPDATE reservations SET num_bon=? WHERE id=?",
-                             (f"BON-{date.today().year}-{new_id:04d}", new_id))
-                new_ids.append(new_id)
-            conn.commit()
-        finally:
-            conn.close()
+        for salle in salles_to_save:
+            res = dict(base_res); res["salle"] = salle
+            new_id, _ = database.insert_reservation_with_bon(res, prefix="BON")
+            new_ids.append(new_id)
 
         ids_str = ", ".join(f"#{i}" for i in new_ids)
         salles_str = ", ".join(salles_to_save)

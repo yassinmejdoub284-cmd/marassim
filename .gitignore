@@ -1,4 +1,5 @@
-# ── Données clients — NE JAMAIS publier ───────────────────────────
+# ── Données clients & secrets — NE JAMAIS publier ─────────────────
+marassim.ini
 marassim.db
 marassim.db-journal
 marassim.db-wal
