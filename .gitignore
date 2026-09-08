@@ -1,0 +1,35 @@
+# ── Données clients — NE JAMAIS publier ───────────────────────────
+marassim.db
+marassim.db-journal
+marassim.db-wal
+marassim.db-shm
+*.db
+contrats_generes/*
+!contrats_generes/.gitkeep
+exports_excel/*
+!exports_excel/.gitkeep
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── Sauvegardes & scratch ─────────────────────────────────────────
+*.bak
+*.tmp
+res.txt
+
+# ── Build PyInstaller ─────────────────────────────────────────────
+build/
+dist/
+*.spec
+
+# ── OS / éditeurs ─────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
