@@ -6,7 +6,7 @@ La nouvelle application Windows se trouve dans [`desktop/`](desktop/). Elle
 conserve le moteur métier historique, les exports Excel et les modèles Word
 français et arabe, avec le logo Marassim intégré.
 
-La version 3.1.0 comprend les rapports avancés et le cash-flow prévisionnel.
+La version 3.2.0 comprend les rapports avancés et le cash-flow prévisionnel.
 Le solde d'une réservation est prévu 15 jours avant l'événement, selon le contrat.
 Un serveur local centralise les écritures de quatre postes ; les sauvegardes
 chiffrées peuvent être répliquées sur les postes clients.
@@ -22,11 +22,19 @@ npm ci
 npm run dev
 ```
 
-La consultation en ligne, la synchronisation par un poste connecté à Internet,
-la PWA, les thèmes et les notifications sont en cours d'intégration. Les fichiers
-correspondants présents dans ce dépôt ne signifient pas qu'un service Vercel est
-déjà déployé. La configuration Vercel actuelle concerne encore l'ancienne
-démonstration ; elle doit être remplacée avant de publier la nouvelle application.
+La version web propose la consultation en lecture seule, les rapports et les
+simulations du cash-flow. Elle comprend une PWA installable, les thèmes clair et
+sombre et les notifications. Un poste client connecté à Internet envoie une
+copie chiffrée du serveur local toutes les 20 minutes.
+
+Sur Vercel, importez **la racine du dépôt (`.`)**, nommée `marassim`, avec le
+framework **Vite**. Ne déployez pas `desktop` ni `desktop/server` séparément.
+La configuration utilise le `package.json` racine, produit `web-dist/` et sert
+les lectures via `api/online.py`. Connectez PostgreSQL et renseignez les variables
+privées décrites dans le [guide en ligne](desktop/GUIDE_EN_LIGNE.md).
+Les tests locaux utilisent une base PostgreSQL simulée et des données fictives ;
+le déploiement hébergé et son premier transfert restent à valider avec votre
+compte Vercel et votre base PostgreSQL.
 
 Les données clients, configurations privées, sauvegardes, dépendances et
 installateurs générés sont exclus du dépôt. Les données de test sont fictives.

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
@@ -8,6 +8,38 @@ app.setName('Marassim');
 app.setPath('userData', path.join(app.getPath('appData'), 'Marassim'));
 
 let window, config = {}, sessionToken, currentUser, pendingPair, syncRunning = false;
+let onlineRunning = false;
+const cloudPath = () => path.join(directory(), 'cloud.json');
+async function onlineStatus() {
+  requireAdmin();
+  let connection = {}, status = {};
+  try { connection = JSON.parse(await fs.readFile(cloudPath(), 'utf8')); } catch {}
+  try { status = JSON.parse(await fs.readFile(path.join(directory(), 'online-status.json'), 'utf8')); } catch {}
+  return { ...status, configured: !!connection.relayToken, onlineUrl: connection.onlineUrl, running: onlineRunning };
+}
+async function syncOnline() {
+  if (onlineRunning) return { running: true };
+  onlineRunning = true;
+  try { await runServerCommand(['--online-sync', cloudPath()]); return { ok: true }; }
+  finally { onlineRunning = false; }
+}
+async function configureOnline(value) {
+  requireAdmin();
+  if (config.mode !== 'client') throw new Error('Configurez le relais sur un poste client connecté à Internet.');
+  const url = new URL(value.onlineUrl);
+  if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw new Error('Indiquez uniquement l’adresse HTTPS du site.');
+  let old = {};
+  try { old = JSON.parse(await fs.readFile(cloudPath(), 'utf8')); } catch {}
+  const secret = value.syncSecret || old.syncSecret;
+  if (typeof secret !== 'string' || secret.length < 32) throw new Error('La clé doit contenir au moins 32 caractères.');
+  const name = config.cloudRelayName || `${require('node:os').hostname().slice(0,45)}-${randomUUID().slice(0,8)}`;
+  const result = await api('/cloud/agents', { method: 'POST', body: { name } });
+  await fs.writeFile(cloudPath() + '.tmp', JSON.stringify({ onlineUrl: url.origin, syncSecret: secret, serverUrl: config.serverUrl, certificate: config.certificate, relayToken: result.relayToken }, null, 2));
+  await fs.rename(cloudPath() + '.tmp', cloudPath());
+  config.cloudRelayName = name; await saveConfig();
+  await installTasks();
+  return { configured: true };
+}
 const devPython = process.env.MARASSIM_PYTHON || 'python';
 const directory = () => app.getPath('userData');
 const configPath = () => path.join(directory(), 'connection.json');
@@ -138,6 +170,7 @@ async function initialize() {
   register('config:reset', async () => {
     sessionToken = currentUser = pendingPair = null;
     // Preserve backup task credentials until a new server is explicitly paired.
+    await fs.unlink(cloudPath()).catch(() => {});
     config = {}; await saveConfig(); return { ok: true };
   });
   register('server:start', serverStart);
@@ -147,11 +180,21 @@ async function initialize() {
     config = { mode: 'client', serverUrl: pendingPair.serverUrl, certificate: pendingPair.certificate };
     sessionToken = currentUser = null;
     await fs.unlink(replicaPath()).catch(() => {});
+    await fs.unlink(cloudPath()).catch(() => {});
     await saveConfig(); pendingPair = null; return { ok: true };
   });
   register('api:request', api);
   register('session:logout', async () => { try { await api('/logout', { method: 'POST' }); } finally { sessionToken = currentUser = null; } });
   register('file:save', saveFile);
+  register('notification:show', value => {
+    if (!sessionToken || !currentUser) throw new Error('Connectez-vous avant de recevoir les notifications.');
+    if (!value || typeof value.title !== 'string' || typeof value.body !== 'string' || value.title.length > 120 || value.body.length > 300) throw new Error('Notification invalide.');
+    if (Notification.isSupported()) new Notification({ title: value.title, body: value.body, icon: path.join(__dirname, '..', 'assets', 'marassim-logo.png') }).show();
+    return { ok: true };
+  });
+  register('online:status', onlineStatus);
+  register('online:configure', configureOnline);
+  register('online:sync', () => { requireAdmin(); return syncOnline(); });
   register('replica:enable', async name => {
     requireAdmin();
     if (config.mode !== 'client') throw new Error('La copie serveur est déjà créée automatiquement sur ce PC.');
@@ -180,6 +223,9 @@ async function initialize() {
   window.on('closed', () => { window = null; });
   const interval = setInterval(() => { if (config.replicaName) sync().catch(() => {}); }, 5 * 60 * 1000);
   interval.unref();
+  const onlineInterval = setInterval(() => { if (config.mode === 'client') fs.access(cloudPath()).then(syncOnline).catch(() => {}); }, 20 * 60 * 1000);
+  onlineInterval.unref();
+  if (config.mode === 'client') fs.access(cloudPath()).then(syncOnline).catch(() => {});
   if (config.replicaName) sync().catch(() => {});
   if (config.mode === 'server') serverStart(false).catch(() => {});
 }

@@ -1,6 +1,6 @@
 {
   "name": "marassim-desktop",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "private": true,
   "description": "Marassim — gestion du complexe de réception en réseau local",
   "author": "Marassim",
@@ -9,7 +9,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "start": "electron .",
-    "test": "node --test tests/*.test.cjs",
+    "test": "node --test tests/transport.test.cjs tests/pwa.test.cjs",
     "package": "npm run build && electron-builder --win nsis --x64",
     "package:dir": "npm run build && electron-builder --win --dir --x64"
   },
@@ -52,6 +52,10 @@
       {
         "from": "GUIDE_RAPPORTS.md",
         "to": "GUIDE_RAPPORTS.md"
+      },
+      {
+        "from": "GUIDE_EN_LIGNE.md",
+        "to": "GUIDE_EN_LIGNE.md"
       }
     ],
     "win": {

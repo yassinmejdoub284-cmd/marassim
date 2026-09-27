@@ -8,6 +8,7 @@ import os
 import re
 import sqlite3
 import tempfile
+import threading
 import time
 import uuid
 import zipfile
@@ -130,6 +131,8 @@ def upload(pg,path,payload,secret):
         if [r[0] for r in chunks]!=list(range(meta['encryptedChunks'])): raise APIError('Copie incomplète.',409)
         encrypted=b''.join(bytes(r[1]) for r in chunks)
         if len(encrypted)!=meta['encryptedBytes'] or hashlib.sha256(encrypted).hexdigest()!=meta['encryptedSha256']: raise APIError('Empreinte de copie invalide.')
+        clear=Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest())).decrypt(encrypted)
+        if len(clear)!=meta['bytes'] or hashlib.sha256(clear).hexdigest()!=meta['sha256']: raise APIError('Empreinte de l’archive invalide.')
         db,inside,_=unpack(encrypted,secret)
         try:
             if any(inside[k]!=meta[k] for k in ('serverId','sequence','capturedAt')): raise APIError('Version de la copie incohérente.')
@@ -146,7 +149,12 @@ def upload(pg,path,payload,secret):
             return {'published':True,'sequence':meta['sequence']}
         finally: db.close()
 
+export_lock=threading.RLock()
 def business(conn,templates,user,path,query):
+    # Legacy Word exporters use module-level template paths.
+    with export_lock: return _business(conn,templates,user,path,query)
+
+def _business(conn,templates,user,path,query):
     import db,database,access_control,rules
     original=active_connection.set(TransactionView(conn))
     db.connect=lambda: active_connection.get()
@@ -192,7 +200,8 @@ class handler(BaseHTTPRequestHandler):
                 with postgres() as pg: result=upload(pg,route,payload,sync_secret)
                 if route=='/cloud/finish':
                     from notifications_web import deliver_push
-                    deliver_push()
+                    try: deliver_push()
+                    except Exception: pass  # Snapshot publication is independent; the durable outbox retries on the next transfer.
             else:
                 if self.command!='GET' and route not in ('/login','/logout','/push/subscribe'): raise APIError('L’application en ligne est en consultation uniquement.',403)
                 origin=self.headers.get('Origin')

@@ -1,0 +1,2 @@
+import { defineConfig } from 'vite';
+export default defineConfig({root:'desktop',base:'/',define:{'import.meta.env.VITE_CLOUD_READONLY':JSON.stringify('1')},build:{outDir:'../web-dist',emptyOutDir:true},server:{port:5174,strictPort:true,proxy:{'/api/online':'http://127.0.0.1:18745'},watch:{ignored:['**/server-build/**','**/server-dist/**','**/release/**','**/test-results/**','**/.python-build/**']}}});

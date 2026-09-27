@@ -1,5 +1,9 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import CloudApp from './CloudApp.jsx';
 import './styles.css';
-createRoot(document.getElementById('root')).render(<App />);
+import './theme.css';
+const cloud = import.meta.env.VITE_CLOUD_READONLY === '1';
+if (cloud && 'serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').then(registration => registration.update()).catch(() => {}));
+createRoot(document.getElementById('root')).render(cloud ? <CloudApp /> : <App />);

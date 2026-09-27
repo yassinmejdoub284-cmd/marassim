@@ -13,7 +13,7 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler, HTTPSHandler
 from backups import atomic_write
 
 CHUNK = 750_000
@@ -47,7 +47,9 @@ def snapshot(application):
         with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
             archive.writestr('marassim.db',blob)
             archive.writestr('snapshot.json',json.dumps({'serverId':meta['server_id'],'sequence':meta['sequence'],'capturedAt':captured}))
-            for file in application.templates.glob('*.docx'): archive.writestr('template/'+file.name,file.read_bytes())
+            for name in ('Bon_Recu_Marassim_Template.docx','Contrat_Arabe_Template.docx'):
+                file=application.templates/name
+                if file.is_file(): archive.writestr('template/'+name,file.read_bytes())
         content = output.getvalue()
         if len(content) > MAX_ARCHIVE: raise ValueError('Copie en ligne trop volumineuse (96 Mo maximum).')
         identifier = uuid.uuid4().hex
@@ -89,9 +91,14 @@ def online_origin(value):
         raise ValueError('Indiquez uniquement l’adresse HTTPS de votre application en ligne.')
     return value.rstrip('/')
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self,*_):
+        raise ValueError('Redirection refusée pour protéger la connexion du relais.')
+
 def json_request(url,body=None,headers=None,context=None):
     request = Request(url,headers={'Content-Type':'application/json',**(headers or {})},data=json.dumps(body).encode() if body is not None else None)
-    with urlopen(request,context=context,timeout=60) as response: return json.load(response)
+    opener=build_opener(NoRedirect(),HTTPSHandler(context=context))
+    with opener.open(request,timeout=60) as response: return json.load(response)
 
 def sync_online(config_path):
     from cryptography.fernet import Fernet

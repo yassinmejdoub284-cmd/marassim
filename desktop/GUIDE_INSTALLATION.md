@@ -4,13 +4,17 @@ La nouvelle interface conserve les modules de l’application Python et réutili
 
 ## Installation Windows
 
-Installer `Marassim-Setup-3.1.0.exe` sur les cinq PC Windows 64 bits. L’installateur contient Electron, React et le moteur métier : Python et Node.js ne sont pas nécessaires sur ces PC.
+Installer `Marassim-Setup-3.2.0.exe` sur les cinq PC Windows 64 bits. L’installateur contient Electron, React et le moteur métier : Python et Node.js ne sont pas nécessaires sur ces PC.
+
+### Nouveautés 3.2.0
+
+Thème clair, sombre ou automatique ; cloche et notifications de nouvelles réservations ; relais vers la consultation Vercel toutes les 20 minutes depuis un poste client avec Internet. Le site React propose une PWA et une interface adaptée au téléphone, à la tablette et au PC. Consulter `GUIDE_EN_LIGNE.md` pour créer le site, connecter PostgreSQL et activer le relais. Aucune modification de réservation ou de paiement n’est autorisée en ligne.
 
 ### Nouveaux modules de pilotage en 3.1.0
 
 Le menu **Pilotage** propose **Rapports avancés** et **Cash-flow prévu**, avec exports Excel. Le solde des réservations confirmées est prévu **15 jours avant l’événement**, déduction faite des acomptes enregistrés. Les dépenses futures se renseignent dans Mouvements planifiés. Consulter `GUIDE_RAPPORTS.md` pour les hypothèses, filtres et échéances.
 
-Pour mettre à jour depuis 3.0.1, créer une sauvegarde, fermer Marassim sur les cinq postes, arrêter la tâche `Marassim-Serveur` et le processus `MarassimServer.exe` sur le serveur, puis installer 3.1.0 et relancer Marassim. Installer la même version sur les quatre clients. Les deux nouvelles tables sont ajoutées à la base utilisée par le serveur ; les réservations, paiements et documents existants restent conservés. Donner les nouvelles permissions aux comptes concernés dans Gestion des accès.
+Pour mettre à jour depuis 3.0.1 ou 3.1.0, créer une sauvegarde, fermer Marassim sur les cinq postes, arrêter la tâche `Marassim-Serveur` et le processus `MarassimServer.exe` sur le serveur, puis installer 3.2.0 et relancer Marassim. Installer la même version sur les quatre clients. Les tables des rapports, notifications et relais sont ajoutées à la base utilisée par le serveur ; les réservations, paiements et documents existants restent conservés. Donner les permissions de pilotage aux comptes concernés dans Gestion des accès.
 
 ### Mise à jour du logo depuis la version 3.0.0
 

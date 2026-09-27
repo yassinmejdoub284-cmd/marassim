@@ -12,4 +12,8 @@ contextBridge.exposeInMainWorld('marassim', Object.freeze({
   exportRecoveryKey: () => ipcRenderer.invoke('recovery:export'),
   installTasks: () => ipcRenderer.invoke('tasks:install'),
   resetConnection: () => ipcRenderer.invoke('config:reset'),
+  showNotification: (message) => ipcRenderer.invoke('notification:show', message),
+  onlineStatus: () => ipcRenderer.invoke('online:status'),
+  configureOnline: (value) => ipcRenderer.invoke('online:configure', value),
+  syncOnline: () => ipcRenderer.invoke('online:sync'),
 }));

@@ -279,7 +279,7 @@ class Application:
         if path == '/health' and method == 'GET':
             with self.storage.transaction() as conn:
                 setup = conn.execute('SELECT COUNT(*) FROM users WHERE actif=1').fetchone()[0] == 0
-            return {'ok': True, 'application': 'marassim', 'version': '3.1.0', 'needsSetup': setup, 'fingerprint': self.fingerprint}
+            return {'ok': True, 'application': 'marassim', 'version': '3.2.0', 'needsSetup': setup, 'fingerprint': self.fingerprint}
         if path.startswith('/replica/'):
             return self.replica_route(method, path, headers, payload)
         if path.startswith('/cloud/relay/'):
@@ -351,7 +351,7 @@ class Application:
             latest=conn.execute('SELECT COALESCE(MAX(id),0) FROM reservation_notifications').fetchone()[0]
             after=int(query.get('after',latest))
             rows=[dict(r) for r in conn.execute('SELECT * FROM reservation_notifications WHERE id>? ORDER BY id LIMIT 100',(after,))]
-            return {'latest':rows[-1]['id'] if len(rows)==100 else latest,'items':rows}
+            return {'serverId':conn.execute('SELECT server_id FROM cloud_meta WHERE id=1').fetchone()[0],'latest':rows[-1]['id'] if len(rows)==100 else latest,'items':rows}
         if path == '/cloud/agents':
             self.require_admin(user)
             if method == 'GET':
