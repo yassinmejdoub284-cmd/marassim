@@ -1,0 +1,11 @@
+node_modules/
+dist/
+release/
+server-dist/
+server-build/
+.npm-cache/
+.electron-cache/
+.python-build/
+test-results/
+*.log
+__pycache__/

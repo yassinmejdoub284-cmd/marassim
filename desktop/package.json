@@ -1,0 +1,71 @@
+{
+  "name": "marassim-desktop",
+  "version": "3.1.0",
+  "private": true,
+  "description": "Marassim — gestion du complexe de réception en réseau local",
+  "author": "Marassim",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "package": "npm run build && electron-builder --win nsis --x64",
+    "package:dir": "npm run build && electron-builder --win --dir --x64"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "^26.0.0",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "tn.marassim.desktop",
+    "productName": "Marassim",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "server-dist/MarassimServer",
+        "to": "server"
+      },
+      {
+        "from": "scripts/install-tasks.ps1",
+        "to": "install-tasks.ps1"
+      },
+      {
+        "from": "GUIDE_INSTALLATION.md",
+        "to": "GUIDE_INSTALLATION.md"
+      },
+      {
+        "from": "GUIDE_RAPPORTS.md",
+        "to": "GUIDE_RAPPORTS.md"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "Marassim-Setup-${version}.exe",
+      "signExecutable": false,
+      "icon": "build/marassim.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Marassim"
+    }
+  }
+}

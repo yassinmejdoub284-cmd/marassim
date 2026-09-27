@@ -1,0 +1,30 @@
+// Fictitious, read-only demonstration. Authoritative calculations live on the server.
+import { today, iso, halls, paid } from './models';
+const round = n => Math.round(n*1000)/1000;
+const addDays = (s,n) => { const d = new Date(s+'T12:00:00'); d.setDate(d.getDate()+n); return iso(d); };
+const balance = r => Math.max(0,r.forfait-paid(r));
+export function previewReport(rows,q) {
+  const start = q.get('start') || today().slice(0,8)+'01', end = q.get('end') || today(), hall = q.get('hall') || 'all';
+  const scope = rows.filter(r => hall === 'all' || hall === r.salle), confirmed = scope.filter(r => !r.is_temporaire), selected = confirmed.filter(r => r.date_evenement >= start && r.date_evenement <= end);
+  const sum = (rs,fn) => round(rs.reduce((s,r) => s+fn(r),0));
+  const deposits = confirmed.filter(r => r.date_acompte1 >= start && r.date_acompte1 <= end);
+  const previousEnd = addDays(start,-1), previousStart = addDays(previousEnd,-Math.round((new Date(end)-new Date(start))/86400000));
+  const previous = confirmed.filter(r => r.date_evenement >= previousStart && r.date_evenement <= previousEnd);
+  const outstanding = selected.filter(r => balance(r)>0).map(r => ({ id:r.id,bon:r.num_bon,client:r.nom_client,hall:r.salle,event:r.date_evenement,due:addDays(r.date_evenement,-15),remaining:balance(r),overdueDays:Math.max(0,Math.floor((new Date(today())-new Date(addDays(r.date_evenement,-15)))/86400000)) })).sort((a,b) => a.due.localeCompare(b.due));
+  const by = labels => labels.map(name => { const subset = selected.filter(r => (halls.includes(name) ? r.salle:r.type_evenement) === name), booked = sum(subset,r => r.forfait); return { name,count:subset.length,booked,paid:sum(subset,paid),outstanding:sum(subset,balance),average:subset.length ? round(booked/subset.length):0 }; });
+  const keys = new Set(); for(let day=start;day<=end;day=addDays(day,1)) keys.add(day.slice(0,7));
+  const monthly = [...keys].map(month => ({ month,count:selected.filter(r => r.date_evenement.startsWith(month)).length,booked:sum(selected.filter(r => r.date_evenement.startsWith(month)),r => r.forfait),deposits:sum(deposits.filter(r => r.date_acompte1.startsWith(month)),r => r.acompte1) }));
+  const booked = sum(selected,r=>r.forfait), previousBooked = sum(previous,r=>r.forfait);
+  return { period:{start,end,hall},asOf:today(),summary:{count:selected.length,temporaryCount:scope.filter(r=>r.is_temporaire && r.date_evenement>=start && r.date_evenement<=end).length,booked,paid:sum(selected,paid),outstanding:sum(selected,balance),deposits:sum(deposits,r=>r.acompte1),overdue:sum(outstanding.filter(r=>r.overdueDays>0),r=>r.remaining),previousBooked,previousCount:previous.length,changePercent:previousBooked ? round((booked-previousBooked)/previousBooked*100):null},previousPeriod:{start:previousStart,end:previousEnd},halls:by(halls),types:by([...new Set(selected.map(r=>r.type_evenement))]),monthly,outstanding,methods:deposits.length ? [{name:'Espèce',count:deposits.length,amount:sum(deposits,r=>r.acompte1)}]:[],cash:[{name:'Tawfik',income:sum(rows.filter(r=>!r.is_temporaire && r.date_acompte1>=start && r.date_acompte1<=end),r=>r.acompte1),expense:0,net:sum(rows.filter(r=>!r.is_temporaire && r.date_acompte1>=start && r.date_acompte1<=end),r=>r.acompte1)},{name:'Omar',income:0,expense:0,net:0}],employees:[],warnings:[] };
+}
+export function previewForecast(rows,q) {
+  const settings = {id:1,opening_date:today(),opening_balance:5000,safety_floor:2000,collection_rate:100,revision:1};
+  const start = q.get('start') || settings.opening_date, end = q.get('end') || addDays(start,179), opening = Number(q.get('opening') ?? settings.opening_balance), floor = Number(q.get('floor') ?? settings.safety_floor), rate = Number(q.get('rate') ?? 100), group = q.get('group') || 'month', overdue = q.get('overdue') !== '0';
+  let overdueAmount=0;
+  const events = rows.filter(r=>!r.is_temporaire && balance(r)>0).flatMap(r=> { const due=addDays(r.date_evenement,-15),late=due<start; if(late) overdueAmount+=balance(r); return (late&&!overdue)||due>end ? []:[{id:'reservation:'+r.id,date:due<start ? start:due,due,designation:`Solde ${r.num_bon} · ${r.nom_client}`,direction:'in',amount:round(balance(r)*rate/100),nominal:balance(r),source:'reservation',hall:r.salle,late}]; });
+  const first = new Date(start+'T12:00:00'), items = [{id:1,due_date:iso(new Date(first.getFullYear(),first.getMonth()+1,1)),designation:'Charges mensuelles · exemple',direction:'out',amount:9000,category:'Autre',frequency:'monthly',repeat_until:addDays(start,365),state:'planned',revision:1}];
+  for(let d=new Date(items[0].due_date+'T12:00:00');iso(d)<=end;d.setMonth(d.getMonth()+1)) events.push({id:'plan:'+iso(d),date:iso(d),due:iso(d),designation:items[0].designation,direction:'out',amount:9000,nominal:9000,source:'planned',category:'Autre',late:false});
+  events.sort((a,b)=>a.date.localeCompare(b.date)); let closing=opening,lowest=opening,lowestDate=start,negativeDate=opening<0 ? start:null,floorDate=opening<floor ? start:null; const buckets={};
+  for(let day=start;day<=end;day=addDays(day,1)) { const d=new Date(day+'T12:00:00'),key=group==='month' ? day.slice(0,7):addDays(day,-(d.getDay()+6)%7),p=buckets[key] ||= {label:key,start:day,end:day,opening:closing,income:0,expense:0}; events.filter(e=>e.date===day).forEach(e=> { p[e.direction==='in'?'income':'expense']+=e.amount; closing+=e.direction==='in'?e.amount:-e.amount; }); p.closing=round(closing);p.net=round(p.income-p.expense);p.end=day; if(closing<lowest) {lowest=closing;lowestDate=day;} if(closing<0 && !negativeDate) negativeDate=day; if(closing<floor && !floorDate) floorDate=day; }
+  return {settings,parameters:{start,end,opening,floor,rate,group,overdue},summary:{income:round(events.filter(e=>e.direction==='in').reduce((s,e)=>s+e.amount,0)),expense:round(events.filter(e=>e.direction==='out').reduce((s,e)=>s+e.amount,0)),closing:round(closing),lowest:round(lowest),lowestDate,negativeDate,floorDate,overdue:overdueAmount},periods:Object.values(buckets),events,items,warnings:[]};
+}

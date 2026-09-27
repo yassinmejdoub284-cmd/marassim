@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "files": {
+    "Bon_Recu_Marassim_Template.docx": {
+      "previous_sha256": [
+        "79ccbcf4895bd3b58946e4c2d262cc26635e82b6dd7cab6ae955973366f5f543"
+      ],
+      "sha256": "822e00fdf324eee749c4cd7b3664940d9e4bd852781d89f5c28ee520082e969e"
+    },
+    "Contrat_Arabe_Template.docx": {
+      "previous_sha256": [
+        "d268f71497b2597b09a7db604c91c3aa298ea9e241735a1395de8ec4465ba9dc"
+      ],
+      "sha256": "8a09d57d3ff85a1b4a04f032ab8fa9405b2a7a7098e951cb0a3f5d60db815572"
+    }
+  }
+}

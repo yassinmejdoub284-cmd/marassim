@@ -34,3 +34,34 @@ desktop.ini
 .DS_Store
 .vscode/
 .idea/
+
+# JavaScript, dépendances et sorties web
+node_modules/
+web-dist/
+.vercel/
+.npm-cache/
+
+# Configuration privée, certificats et copies de la base
+.env
+.env.*
+!.env.example
+!.env.*.example
+cloud.json
+online-status.json
+replica.json
+connection.json
+*.sqlite
+*.sqlite3
+*.db-*
+*.pem
+*.key
+*.pfx
+*.p12
+backups/
+cloud-export/
+data/
+
+# L'icône est un fichier source nécessaire à l'installateur Windows
+!desktop/build/
+desktop/build/*
+!desktop/build/marassim.ico

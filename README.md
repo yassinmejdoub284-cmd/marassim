@@ -1,5 +1,38 @@
 # Marassim — Système de gestion des réservations
 
+## Application Electron + React
+
+La nouvelle application Windows se trouve dans [`desktop/`](desktop/). Elle
+conserve le moteur métier historique, les exports Excel et les modèles Word
+français et arabe, avec le logo Marassim intégré.
+
+La version 3.1.0 comprend les rapports avancés et le cash-flow prévisionnel.
+Le solde d'une réservation est prévu 15 jours avant l'événement, selon le contrat.
+Un serveur local centralise les écritures de quatre postes ; les sauvegardes
+chiffrées peuvent être répliquées sur les postes clients.
+
+- [Installation sur le serveur et les postes](desktop/GUIDE_INSTALLATION.md)
+- [Rapports et cash-flow prévu](desktop/GUIDE_RAPPORTS.md)
+- [Validation du logo et des modèles](desktop/VALIDATION_LOGO.md)
+
+Pour développer l'interface, depuis `desktop/` :
+
+```bash
+npm ci
+npm run dev
+```
+
+La consultation en ligne, la synchronisation par un poste connecté à Internet,
+la PWA, les thèmes et les notifications sont en cours d'intégration. Les fichiers
+correspondants présents dans ce dépôt ne signifient pas qu'un service Vercel est
+déjà déployé. La configuration Vercel actuelle concerne encore l'ancienne
+démonstration ; elle doit être remplacée avant de publier la nouvelle application.
+
+Les données clients, configurations privées, sauvegardes, dépendances et
+installateurs générés sont exclus du dépôt. Les données de test sont fictives.
+
+## Application historique
+
 Application de bureau (Python + Tkinter) pour gérer les réservations des
 2 salles (**Almes**, **Chichkhane**) et de l'**espace gazon (Rayhane)** du
 complexe Marassim : saisie avec vérification automatique des conflits,
