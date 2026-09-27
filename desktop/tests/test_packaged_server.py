@@ -51,6 +51,17 @@ class PackagedServerTests(unittest.TestCase):
                 request('/setup', 'POST', {'username': 'binary-test', 'password': 'binary-test-password'})
                 token = request('/login', 'POST', {'username': 'binary-test', 'password': 'binary-test-password'})['token']
                 row = request('/reservations', 'POST', {'salle': 'Almes', 'date_evenement': '2027-04-15', 'heure_debut': '15:00', 'heure_fin': '18:00', 'nom_client': 'Test binaire', 'forfait': 1000}, token)[0]
+                notifications = request('/notifications?after=0',token=token)
+                self.assertEqual(len(notifications['items']),1)
+                self.assertTrue(notifications['serverId'])
+                relay = request('/cloud/agents','POST',{'name':'Relais compilé'},token)
+                relay_headers = {'Authorization':'CloudRelay '+relay['relayToken'],'Content-Type':'application/json'}
+                req = urllib.request.Request(f'https://127.0.0.1:{port}/api/cloud/relay/snapshot',data=b'{}',headers=relay_headers)
+                with urllib.request.urlopen(req,context=context) as response: manifest=json.load(response)
+                req = urllib.request.Request(f"https://127.0.0.1:{port}/api/cloud/relay/snapshot/{manifest['id']}?chunk=0",headers=relay_headers)
+                with urllib.request.urlopen(req,context=context) as response: block=json.load(response)
+                with zipfile.ZipFile(io.BytesIO(base64.b64decode(block['data']))) as archive:
+                    self.assertIn('snapshot.json',archive.namelist())
                 forecast = request('/forecast?start=2027-03-01&end=2027-04-30&overdue=0',token=token)
                 self.assertEqual(forecast['events'][0]['due'],'2027-03-31')
                 self.assertEqual(forecast['summary']['income'],1000)

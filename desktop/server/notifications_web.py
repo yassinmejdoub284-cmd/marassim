@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import time
 from urllib.parse import urlparse
 from app import APIError
 
@@ -46,6 +47,7 @@ def deliver_push():
     if not os.environ.get('VAPID_PRIVATE_KEY') or not os.environ.get('VAPID_SUBJECT'): return
     from pywebpush import webpush,WebPushException
     from cloud_web import postgres,latest,unpack,public_user
+    deadline=time.monotonic()+20
     with postgres() as pg:
         snapshot=latest(pg); conn,_,_=unpack(snapshot['encrypted'],os.environ['MARASSIM_SYNC_SECRET'])
         try:
@@ -58,6 +60,7 @@ def deliver_push():
                     cursor.execute('SELECT id,subscription FROM online_push WHERE user_id=%s',(user_id,))
                     failed=False
                     for sub_id,sub in cursor.fetchall():
+                        if time.monotonic()>=deadline: return  # Commit progress; retry the remaining durable outbox on the next transfer.
                         try:
                             webpush(subscription_info=sub,data=json.dumps(body),vapid_private_key=os.environ['VAPID_PRIVATE_KEY'],vapid_claims={'sub':os.environ['VAPID_SUBJECT']},timeout=5)
                         except WebPushException as error:
