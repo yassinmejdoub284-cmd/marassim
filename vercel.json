@@ -4,7 +4,7 @@
   "functions": {
     "api/online.py": {
       "maxDuration": 60,
-      "excludeFiles": "{node_modules/**,web-dist/**,desktop/node_modules/**,desktop/src/**,desktop/public/**,desktop/assets/**,desktop/electron/**,desktop/tests/**,desktop/scripts/**}"
+      "excludeFiles": "{node_modules/**,web-dist/**,desktop/node_modules/**,desktop/src/**,desktop/public/**,desktop/electron/**,desktop/tests/**,desktop/scripts/**}"
     }
   },
   "installCommand": "npm ci --ignore-scripts",
