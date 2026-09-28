@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import secrets
+import socket
 import sqlite3
 import ssl
 import threading
@@ -36,6 +37,14 @@ def snapshot(application):
         source = application.storage.connect(); copy = sqlite3.connect(':memory:')
         try:
             source.backup(copy)
+            backups = application.backups.manifests()
+            latest = backups[0] if backups else None
+            replicas = []
+            for row in copy.execute('SELECT name,last_seen,last_backup,last_sha256,active FROM replicas ORDER BY id'):
+                replicas.append({'name': row[0], 'last_seen': row[1], 'active': row[4], 'verified': bool(latest and row[4] and row[2] == latest['name'] and row[3] == latest['sha256'])})
+            local_status = {'available': True, 'server': socket.gethostname(), 'replicas': replicas,
+                            'latest': {k: latest[k] for k in ('name', 'created_at')} if latest else None,
+                            'verifiedCopies': (1 if latest else 0) + sum(r['verified'] for r in replicas)}
             for table in ('web_sessions','idempotency','replicas','audit_log','cloud_agents'):
                 copy.execute(f'DELETE FROM {table}')
             copy.commit(); copy.execute('PRAGMA journal_mode=DELETE'); copy.execute('VACUUM')
@@ -46,7 +55,7 @@ def snapshot(application):
         output = io.BytesIO()
         with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:
             archive.writestr('marassim.db',blob)
-            archive.writestr('snapshot.json',json.dumps({'serverId':meta['server_id'],'sequence':meta['sequence'],'capturedAt':captured}))
+            archive.writestr('snapshot.json',json.dumps({'serverId':meta['server_id'],'sequence':meta['sequence'],'capturedAt':captured,'localStatus':local_status}))
             for name in ('Bon_Recu_Marassim_Template.docx','Contrat_Arabe_Template.docx'):
                 file=application.templates/name
                 if file.is_file(): archive.writestr('template/'+name,file.read_bytes())

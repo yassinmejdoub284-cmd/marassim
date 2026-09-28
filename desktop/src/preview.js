@@ -23,9 +23,17 @@ export const previewBridge = {
     if (url.pathname === '/reports') return wrap(previewReport(rows,url.searchParams));
     if (url.pathname === '/forecast') return wrap(previewForecast(rows,url.searchParams));
     if (path === '/reservations') return wrap(rows);
+    if (url.pathname === '/pointage/events') return wrap(rows.filter(r => !r.is_temporaire && r.date_evenement === url.searchParams.get('date')).map(({id,salle,date_evenement,heure_debut,heure_fin}) => ({id,salle,date_evenement,heure_debut,heure_fin})));
     if (path.startsWith('/reservations/')) return wrap(rows.find(r => r.id === Number(path.split('/')[2])));
     if (path === '/users') return wrap([user]);
+    if (path === '/employees/options') return wrap([]);
     if (path === '/status') return wrap({ server: 'MARASSIM-SERVEUR', fingerprint: 'a7c419afae4f21d94b181d0cc0a92c62d37d5ad7cc321b24f8b741c2f9abc311', latest: { name: 'preview.mrb', created_at: new Date().toISOString() }, replicas: [], verifiedCopies: 1, backupHour: '19:00', retentionDays: 30 });
+    if (url.pathname === '/journal' && url.searchParams.get('caisse') === 'omar') {
+      const start = url.searchParams.get('start') || month+'01', end = url.searchParams.get('end') || today();
+      const history = rows.filter(r => !r.is_temporaire).map(r => ({date:r.date_acompte1, designation:`ACOMPTE CLIENT ${r.nom_client} · ${r.salle}`, montant:500}));
+      const recettes = history.filter(r => r.date >= start && r.date <= end), opening = history.filter(r => r.date < start).reduce((sum,r) => sum+r.montant,0), income = recettes.reduce((sum,r) => sum+r.montant,0);
+      return wrap({recettes,sorties:[],period:{start,end},opening,income,expense:0,closing:opening+income,net:income,warnings:[]});
+    }
     if (path.startsWith('/journal')) return wrap({ recettes: rows.map(r => ({ date: month + '01', designation: `ACOMPTE ${r.nom_client} ${r.salle}`, montant: r.acompte1, fn: '', num_caisse: r.num_caisse1 })), charges: [], sorties: [] });
     if (path === '/reception' || path in schemas || Object.keys(schemas).some(k => path === '/' + k)) return wrap([]);
     return Promise.resolve({ ok: false, error: 'Cette action est disponible dans l’application Electron.' });

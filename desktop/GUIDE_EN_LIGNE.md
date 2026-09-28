@@ -1,4 +1,4 @@
-# Marassim 3.2 — consultation en ligne et notifications
+# Marassim 3.3 — consultation en ligne et notifications
 
 Le serveur local garde la base de référence. Les quatre postes travaillent sur
 ce serveur par RJ45. Un poste client connecté à Internet transmet une copie
@@ -31,7 +31,7 @@ pas écraser une copie plus récente. Une copie incomplète n'est jamais publié
 
 ## Activer un relais
 
-Installez Marassim 3.2.0 sur le serveur puis les quatre postes, après sauvegarde
+Installez Marassim 3.3.0 sur le serveur puis les quatre postes, après sauvegarde
 et arrêt du serveur précédent. Sur un poste client avec Internet, connectez-vous
 comme administrateur, ouvrez **Réseau & sauvegardes → Synchronisation en ligne**.
 Entrez l'adresse HTTPS du site et la valeur `MARASSIM_SYNC_SECRET`. Configurez
@@ -47,7 +47,13 @@ Une révocation du relais se fait par l'API administrateur `/cloud/agents/{id}`.
 ## Utiliser le site
 
 Les identifiants sont ceux de Marassim. Les droits du compte sont conservés :
-réservations/calendrier, rapports et cash-flow selon les autorisations locales.
+réservations et acomptes, calendrier et son export Excel, caisses Omar et Tawfik,
+charges et recettes, employés et leurs fiches, pointages, paiements employés,
+centre de réception, règles, rapports et cash-flow selon les autorisations
+locales. Les administrateurs peuvent consulter les comptes et le suivi des
+sauvegardes capturé à la dernière copie. Les états Omar sont exportables en
+Excel et PDF. Les autres listes proposent un export Excel de la sélection.
+Aucune création, modification ou suppression métier n'est autorisée en ligne.
 Les modifications de compte se répercutent au prochain transfert. Les sessions
 en ligne expirent après une heure. Aucune réservation ni paiement ne peut être
 modifié en ligne. Les simulations du cash-flow n'enregistrent pas d'hypothèses.

@@ -6,7 +6,9 @@ La nouvelle application Windows se trouve dans [`desktop/`](desktop/). Elle
 conserve le moteur métier historique, les exports Excel et les modèles Word
 français et arabe, avec le logo Marassim intégré.
 
-La version 3.2.0 comprend les rapports avancés et le cash-flow prévisionnel.
+La version 3.3.0 comprend les rapports avancés, le cash-flow prévisionnel et
+l’état mensuel Caisse Omar avec report du solde, détails des employés de nuit
+et exports Excel/PDF au format papier fourni.
 Le solde d'une réservation est prévu 15 jours avant l'événement, selon le contrat.
 Un serveur local centralise les écritures de quatre postes ; les sauvegardes
 chiffrées peuvent être répliquées sur les postes clients.

@@ -165,7 +165,7 @@ def _business(conn,templates,user,path,query):
             application=Application.__new__(Application)
             application.database=database; application.access=access_control; application.rules=rules
             application.all_modules=access_control.ALL_MODULES+analytics.REPORT_MODULES; application.templates=root
-            permitted=('/reports','/forecast','/reservations','/journal','/employees','/charges','/charges-omar','/recettes-omar','/employee-payments','/pointage','/rules','/reception','/exports','/notifications')
+            permitted=('/reports','/forecast','/reservations','/journal','/employees','/charges','/charges-omar','/recettes-omar','/employee-payments','/pointage','/rules','/reception','/exports','/notifications','/users')
             if not any(path==p or path.startswith(p+'/') for p in permitted): raise APIError('Ce module n’est pas disponible en ligne.',403)
             return application.business_route(conn,user,'GET',path,query,{})
     finally: active_connection.reset(original)
@@ -236,6 +236,9 @@ class handler(BaseHTTPRequestHandler):
                             if not hmac.compare_digest(session['stamp'],auth_stamp(row,user['modules'])): raise APIError('Votre compte a changé. Reconnectez-vous.',401)
                             if route=='/me': result=user
                             elif route=='/health': result={'ok':True,'readOnly':True,**{k:snapshot[k] for k in ('sequence','capturedAt','publishedAt')}}
+                            elif route=='/status':
+                                if user['role']!='admin': raise APIError('Accès réservé à l’administrateur.',403)
+                                result=meta.get('localStatus',{'available':False})
                             elif route.startswith('/push/'):
                                 from notifications_web import push_route
                                 result=push_route(pg,user,self.command,route,payload)

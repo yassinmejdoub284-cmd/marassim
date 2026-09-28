@@ -27,6 +27,7 @@ LEGACY = Path(getattr(sys, '_MEIPASS', HERE.parents[1]))
 sys.path.insert(0, str(LEGACY))
 from storage import Storage
 import analytics
+import omar_cash
 import cloud_sync
 from backups import BackupManager, atomic_write, restore_backup, sync_replica
 
@@ -144,6 +145,7 @@ class Application:
             conn.execute(access_control.SCHEMA_USERS)
             conn.execute(access_control.SCHEMA_MODULE_ACCESS)
             cloud_sync.initialize(conn)
+            conn.execute('CREATE TABLE IF NOT EXISTS omar_charge_details(charge_id INTEGER PRIMARY KEY REFERENCES charges_omar(id) ON DELETE CASCADE, details TEXT NOT NULL)')
             conn.execute('CREATE TABLE IF NOT EXISTS reservation_notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,reservation_id INTEGER NOT NULL,hall TEXT NOT NULL,event_date TEXT NOT NULL,bon TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
             conn.execute('CREATE TRIGGER IF NOT EXISTS notify_new_reservation AFTER INSERT ON reservations BEGIN INSERT INTO reservation_notifications(reservation_id,hall,event_date,bon) VALUES (NEW.id,NEW.salle,NEW.date_evenement,NEW.num_bon); END')
             for statement in analytics.SCHEMA.split(';'):
@@ -279,7 +281,7 @@ class Application:
         if path == '/health' and method == 'GET':
             with self.storage.transaction() as conn:
                 setup = conn.execute('SELECT COUNT(*) FROM users WHERE actif=1').fetchone()[0] == 0
-            return {'ok': True, 'application': 'marassim', 'version': '3.2.0', 'needsSetup': setup, 'fingerprint': self.fingerprint}
+            return {'ok': True, 'application': 'marassim', 'version': '3.3.0', 'needsSetup': setup, 'fingerprint': self.fingerprint}
         if path.startswith('/replica/'):
             return self.replica_route(method, path, headers, payload)
         if path.startswith('/cloud/relay/'):
@@ -450,16 +452,22 @@ class Application:
             date.fromisoformat(start); date.fromisoformat(end)
             if start > end:
                 raise APIError('La date de fin précède le début de la période.')
-            return (self.database.get_journal_caisse_omar if omar else self.database.get_journal_caisse)(start, end)
+            return omar_cash.journal(conn, self.database, start, end) if omar else self.database.get_journal_caisse(start, end)
         if resource == 'employees' and len(parts) == 2 and parts[1] == 'options' and method == 'GET':
             self.require(user, 'Liste employés', 'Ajouter employé', 'Pointage')
             return self.database.get_all_employees()
+        if path == '/pointage/events' and method == 'GET':
+            self.require(user, 'Pointage')
+            day = query.get('date', date.today().isoformat())
+            if date.fromisoformat(day).isoformat() != day:
+                raise APIError('Date de soirée invalide.')
+            return [dict(r) for r in conn.execute('SELECT id,salle,date_evenement,heure_debut,heure_fin FROM reservations WHERE date_evenement=? AND COALESCE(is_temporaire,0)=0 ORDER BY heure_debut,salle,id', (day,))]
         if resource == 'pointage' and len(parts) == 2 and parts[1] == 'batch' and method == 'POST':
             self.require(user, 'Pointage')
             entries = payload.get('entries')
             if not isinstance(entries, list) or not 1 <= len(entries) <= 500:
                 raise APIError('Sélectionnez au moins un employé et une période.')
-            ids, nuit = [], {}
+            ids, nuit, charge_details = [], {}, []
             session_date, notes = None, payload.get('notes') or None
             for entry in entries:
                 data = self.clean('pointage', entry)
@@ -480,12 +488,26 @@ class Application:
                 if employee.get('type_ouvrier') == 'nuit':
                     tariff_field = {'midi': 'salaire_midi', 'apres_midi': 'salaire_apres_midi', 'soiree': 'salaire_soiree', 'journee_complete': 'salaire_journalier'}[data['periode']]
                     amount = (employee.get(tariff_field) or 0) + (data.get('heures_supplementaires') or 0) * (employee.get('prix_heure_supp') or 0)
+                    charge_details.append({'name': f"{employee['nom']} {employee['prenom']}".strip(), 'period': {'midi': 'Midi', 'apres_midi': '15H', 'soiree': '21H', 'journee_complete': 'Journée complète'}[data['periode']], 'amount': analytics.number(amount), 'pointageId': ids[-1]})
                     nuit.setdefault(employee['id'], {'employee': employee, 'amount': 0})['amount'] += amount
             total = sum(item['amount'] for item in nuit.values())
             if total > 0:
-                names = ' / '.join(f"{item['employee']['nom']} {item['employee']['prenom']}" for item in nuit.values() if item['amount'] > 0)
-                designation = notes or f"Pointage {names} — {datetime.strptime(session_date, '%Y-%m-%d').strftime('%d/%m/%Y')}"
-                self.database.insert_charge_omar(session_date, designation, round(total, 3))
+                event_ids = payload.get('eventIds')
+                if event_ids is not None and (not isinstance(event_ids,list) or len(event_ids)>30 or any(type(i) is not int for i in event_ids) or len(set(event_ids))!=len(event_ids)):
+                    raise APIError('Sélection de soirées invalide.')
+                events = [dict(r) for r in conn.execute('SELECT id,salle,heure_debut FROM reservations WHERE date_evenement=? AND COALESCE(is_temporaire,0)=0 ORDER BY heure_debut,salle,id', (session_date,))]
+                if event_ids is not None:
+                    if set(event_ids)-{r['id'] for r in events}: raise APIError('Une soirée sélectionnée ne correspond plus à cette date. Rechargez le pointage.',409)
+                    events = [r for r in events if r['id'] in event_ids]
+                else:
+                    periods = {d['period'] for d in charge_details}
+                    events = [r for r in events if ('21H' if int(r['heure_debut'][:2])>=19 else '15H' if int(r['heure_debut'][:2])>=13 else 'Midi') in periods or 'Journée complète' in periods]
+                labels = ' ET '.join(f"{r['salle'].upper()} {r['heure_debut'].replace(':00','H').replace(':','H')}" for r in events)
+                designation = f"Dépense Soirée le {datetime.strptime(session_date, '%Y-%m-%d').strftime('%d/%m/%Y')}"
+                if labels: designation += ' ' + labels
+                if notes: designation += ' · ' + notes
+                charge_id = self.database.insert_charge_omar(session_date, designation, round(total, 3))
+                conn.execute('INSERT INTO omar_charge_details(charge_id,details) VALUES (?,?)', (charge_id, json.dumps(charge_details, ensure_ascii=False)))
             for employee_id in {entry['employee_id'] for entry in entries}:
                 conn.execute('UPDATE employees SET revision=revision+1 WHERE id=?', (employee_id,))
             return {'ids': ids, 'omarCharge': round(total, 3)}
@@ -674,6 +696,12 @@ class Application:
                     contract_generator.generate_arabic_contract(row, payload.get('arabic', {}), str(file))
                 else:
                     contract_generator.generate_contract(row, str(file))
+            elif parts[1] == 'table':
+                from online_exports import export_table
+                resource = query.get('resource', '')
+                name = f'Marassim_{resource}.xlsx'
+                file = Path(temp) / name
+                export_table(self, conn, user, resource, query, file)
             elif parts[1] == 'journal':
                 from legacy_exports import export_journal
                 omar = query.get('caisse') == 'omar'
@@ -682,9 +710,16 @@ class Application:
                 date.fromisoformat(start); date.fromisoformat(end)
                 if start > end:
                     raise APIError('La date de fin précède le début de la période.')
-                name = f"Journal_Caisse_{'Omar_' if omar else ''}{start}_{end}.xlsx"
+                kind = query.get('format', 'xlsx')
+                if kind not in ('xlsx', 'pdf') or (kind == 'pdf' and not omar):
+                    raise APIError('Format de journal invalide.')
+                name = f"Journal_Caisse_{'Omar_' if omar else ''}{start}_{end}.{kind}"
                 file = Path(temp) / name
-                export_journal(self.database, omar, start, end, str(file), query.get('number') or '?')
+                if omar:
+                    data = omar_cash.journal(conn, self.database, start, end)
+                    (omar_cash.export_pdf if kind == 'pdf' else omar_cash.export_excel)(data, file)
+                else:
+                    export_journal(self.database, False, start, end, str(file), query.get('number') or '?')
             else:
                 raise APIError('Export inconnu.', 404)
             return {'name': name, 'base64': base64.b64encode(file.read_bytes()).decode()}

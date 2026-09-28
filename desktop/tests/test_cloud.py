@@ -134,8 +134,8 @@ class CloudTests(unittest.TestCase):
             server=ThreadingHTTPServer(('127.0.0.1',0),cloud_web.handler)
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
             url=f'http://127.0.0.1:{server.server_port}/api/online'
-            def fetch(path,body=None,cookie=None):
-                req=urllib.request.Request(url+path,data=json.dumps(body).encode() if body is not None else None,headers={'Content-Type':'application/json',**({'Cookie':cookie} if cookie else {})})
+            def fetch(path,body=None,cookie=None,method=None):
+                req=urllib.request.Request(url+path,data=json.dumps(body).encode() if body is not None else None,headers={'Content-Type':'application/json',**({'Cookie':cookie} if cookie else {})},method=method)
                 return urllib.request.urlopen(req)
             try:
                 with fetch('/login',{'username':'admin','password':'test-password-123'}) as response:
@@ -143,8 +143,18 @@ class CloudTests(unittest.TestCase):
                     self.assertIn('HttpOnly',cookie);self.assertIn('Secure',cookie);self.assertNotIn('password',user)
                 with fetch('/forecast',cookie=cookie) as response:self.assertTrue(json.load(response)['summary'])
                 with fetch('/exports/contract/1',cookie=cookie) as response:self.assertTrue(json.load(response)['base64'])
-                with self.assertRaises(urllib.error.HTTPError) as error:fetch('/reservations',self.reservation(),cookie)
-                self.assertEqual(error.exception.code,403)
+                for resource in ('charges','charges-omar','recettes-omar','employees','pointage','employee-payments','rules','reception','users'):
+                    with fetch('/'+resource,cookie=cookie) as response:
+                        rows=json.load(response);self.assertIsInstance(rows,list)
+                        if resource=='users':self.assertNotIn('password_hash',rows[0])
+                    with fetch('/exports/table?resource='+resource,cookie=cookie) as response:self.assertTrue(json.load(response)['base64'])
+                with fetch('/journal?caisse=omar&start=2026-06-01&end=2026-06-30',cookie=cookie) as response:self.assertEqual(json.load(response)['opening'],0)
+                with fetch('/exports/journal?caisse=omar&start=2026-06-01&end=2026-06-30&format=pdf',cookie=cookie) as response:self.assertTrue(base64.b64decode(json.load(response)['base64']).startswith(b'%PDF'))
+                with fetch('/status',cookie=cookie) as response:
+                    status=json.load(response);self.assertTrue(status['available']);self.assertNotIn('last_sha256',json.dumps(status))
+                for method,path in (('POST','/reservations'),('PUT','/reservations/1'),('DELETE','/reservations/1'),('POST','/reception'),('PUT','/users/1'),('POST','/charges-omar'),('POST','/pointage/batch')):
+                    with self.assertRaises(urllib.error.HTTPError) as error:fetch(path,{},cookie,method)
+                    self.assertEqual(error.exception.code,403)
                 with self.assertRaises(urllib.error.HTTPError) as error:fetch('/reports')
                 self.assertEqual(error.exception.code,401)
                 with fetch('/logout',{},cookie) as response:self.assertIn('Max-Age=0',response.headers['Set-Cookie'])

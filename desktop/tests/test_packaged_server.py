@@ -81,6 +81,16 @@ class PackagedServerTests(unittest.TestCase):
                 with zipfile.ZipFile(io.BytesIO(base64.b64decode(exported_ar['base64']))) as document:
                     self.assertIn((EXE.parents[2] / 'assets/marassim-logo.png').read_bytes(), [document.read(n) for n in document.namelist() if n.startswith('word/media/')])
                 self.assertTrue(request('/backups', 'POST', {}, token)['sha256'])
+                request('/recettes-omar', 'POST', {'date_recette':'2026-05-31','designation':'Ancienne recette fictive','montant':7508.078}, token)
+                request('/charges-omar', 'POST', {'date_encaissement':'2026-06-05','designation':'Charge fictive','montant':555}, token)
+                query='caisse=omar&start=2026-06-01&end=2026-06-30'
+                june=request('/journal?'+query,token=token)
+                self.assertEqual(june['opening'],7508.078);self.assertEqual(june['closing'],6953.078)
+                july=request('/journal?caisse=omar&start=2026-07-01&end=2026-07-31',token=token)
+                self.assertEqual(july['opening'],june['closing'])
+                pdf=request('/exports/journal?'+query+'&format=pdf',token=token)
+                self.assertTrue(base64.b64decode(pdf['base64']).startswith(b'%PDF'))
+                self.assertTrue(request('/exports/table?resource=charges-omar',token=token)['base64'])
             finally:
                 process.terminate()
                 process.wait(timeout=15)

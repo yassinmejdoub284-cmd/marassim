@@ -1,6 +1,6 @@
 {
   "name": "marassim-online",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "private": true,
   "scripts": {"build": "vite build --config vercel.vite.config.mjs", "dev:cloud": "vite --config vercel.vite.config.mjs --host 127.0.0.1"},
   "dependencies": {"react": "^19.0.0", "react-dom": "^19.0.0", "lucide-react": "^0.468.0"},

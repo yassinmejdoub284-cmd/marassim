@@ -666,6 +666,9 @@ def get_journal_caisse_omar(start_date: str, end_date: str) -> dict:
                 "designation":     designation,
                 "num_caisse_omar": num_caisse_omar,
                 "montant":         montant_omar,
+                "res_id":          res.get("id"),
+                "slot":            slot,
+                "facture":         res.get("n_facture") or "",
             })
 
     recettes.sort(key=lambda x: x["date"])
@@ -705,6 +708,7 @@ def get_journal_caisse_omar(start_date: str, end_date: str) -> dict:
             "designation": c["designation"],
             "montant":     float(c["montant"]),
             "type":        "charge",
+            "charge_id":   c["id"],
         })
 
     # ── Sorties : paiements employés (ouvriers de nuit uniquement) ──
