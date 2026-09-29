@@ -147,7 +147,18 @@ class Application:
             cloud_sync.initialize(conn)
             conn.execute('CREATE TABLE IF NOT EXISTS omar_charge_details(charge_id INTEGER PRIMARY KEY REFERENCES charges_omar(id) ON DELETE CASCADE, details TEXT NOT NULL)')
             conn.execute('CREATE TABLE IF NOT EXISTS reservation_notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,reservation_id INTEGER NOT NULL,hall TEXT NOT NULL,event_date TEXT NOT NULL,bon TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)')
+            event_columns={r['name'] for r in conn.execute('PRAGMA table_info(reservation_notifications)')}
+            if 'kind' not in event_columns: conn.execute("ALTER TABLE reservation_notifications ADD COLUMN kind TEXT NOT NULL DEFAULT 'reservation'")
+            if 'amount' not in event_columns: conn.execute('ALTER TABLE reservation_notifications ADD COLUMN amount REAL')
             conn.execute('CREATE TRIGGER IF NOT EXISTS notify_new_reservation AFTER INSERT ON reservations BEGIN INSERT INTO reservation_notifications(reservation_id,hall,event_date,bon) VALUES (NEW.id,NEW.salle,NEW.date_evenement,NEW.num_bon); END')
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS notify_initial_payment AFTER INSERT ON reservations
+                WHEN COALESCE(NEW.acompte1,0)+COALESCE(NEW.acompte2,0)+COALESCE(NEW.acompte3,0)>0
+                BEGIN INSERT INTO reservation_notifications(reservation_id,hall,event_date,bon,kind,amount)
+                VALUES(NEW.id,NEW.salle,NEW.date_evenement,NEW.num_bon,'payment',COALESCE(NEW.acompte1,0)+COALESCE(NEW.acompte2,0)+COALESCE(NEW.acompte3,0)); END""")
+            conn.execute("""CREATE TRIGGER IF NOT EXISTS notify_payment_received AFTER UPDATE OF acompte1,acompte2,acompte3 ON reservations
+                WHEN COALESCE(NEW.acompte1,0)+COALESCE(NEW.acompte2,0)+COALESCE(NEW.acompte3,0)>COALESCE(OLD.acompte1,0)+COALESCE(OLD.acompte2,0)+COALESCE(OLD.acompte3,0)
+                BEGIN INSERT INTO reservation_notifications(reservation_id,hall,event_date,bon,kind,amount)
+                VALUES(NEW.id,NEW.salle,NEW.date_evenement,NEW.num_bon,'payment',(COALESCE(NEW.acompte1,0)+COALESCE(NEW.acompte2,0)+COALESCE(NEW.acompte3,0))-(COALESCE(OLD.acompte1,0)+COALESCE(OLD.acompte2,0)+COALESCE(OLD.acompte3,0))); END""")
             for statement in analytics.SCHEMA.split(';'):
                 if statement.strip():
                     conn.execute(statement)
@@ -253,6 +264,8 @@ class Application:
                 raise APIError(f'Champ obligatoire : {key}.')
         if data['salle'] not in self.rules.SALLES:
             raise APIError('Salle inconnue.')
+        if data['heure_debut'] == data['heure_fin']:
+            raise APIError("L'heure de fin doit être différente de l'heure de début.")
         total = sum(data.get(f'acompte{i}') or 0 for i in range(1, 4))
         forfait = data.get('forfait') or 0
         if total > forfait and forfait > 0:
@@ -281,7 +294,7 @@ class Application:
         if path == '/health' and method == 'GET':
             with self.storage.transaction() as conn:
                 setup = conn.execute('SELECT COUNT(*) FROM users WHERE actif=1').fetchone()[0] == 0
-            return {'ok': True, 'application': 'marassim', 'version': '3.3.0', 'needsSetup': setup, 'fingerprint': self.fingerprint}
+            return {'ok': True, 'application': 'marassim', 'version': '3.4.0', 'needsSetup': setup, 'fingerprint': self.fingerprint}
         if path.startswith('/replica/'):
             return self.replica_route(method, path, headers, payload)
         if path.startswith('/cloud/relay/'):
@@ -349,11 +362,50 @@ class Application:
         parts = path.strip('/').split('/')
         resource = parts[0]
         if path == '/notifications' and method == 'GET':
-            self.require(user,'Réservations','Calendrier','Rapports avancés','Cash-flow prévu')
+            self.require(user,'Réservations','Calendrier','Nouvelle réservation','Ajouter un acompte','Rapports avancés','Cash-flow prévu')
             latest=conn.execute('SELECT COALESCE(MAX(id),0) FROM reservation_notifications').fetchone()[0]
             after=int(query.get('after',latest))
             rows=[dict(r) for r in conn.execute('SELECT * FROM reservation_notifications WHERE id>? ORDER BY id LIMIT 100',(after,))]
             return {'serverId':conn.execute('SELECT server_id FROM cloud_meta WHERE id=1').fetchone()[0],'latest':rows[-1]['id'] if len(rows)==100 else latest,'items':rows}
+        if path == '/payment-alerts' and method == 'GET':
+            self.require(user,'Réservations','Calendrier','Ajouter un acompte','Rapports avancés','Cash-flow prévu')
+            today_day=date.today(); alerts=[]
+            for row in conn.execute('SELECT id,num_bon,nom_client,salle,date_evenement,date_reste,forfait,acompte1,acompte2,acompte3 FROM reservations WHERE COALESCE(is_temporaire,0)=0'):
+                due=round(float(row['forfait'] or 0)-sum(float(row[f'acompte{i}'] or 0) for i in (1,2,3)),3)
+                if due<=0: continue
+                try: deadline=date.fromisoformat(row['date_reste']) if row['date_reste'] else date.fromisoformat(row['date_evenement'])-timedelta(days=15)
+                except ValueError: continue
+                if deadline<today_day:
+                    alerts.append({'id':row['id'],'bon':row['num_bon'],'client':row['nom_client'],'salle':row['salle'],
+                                   'eventDate':row['date_evenement'],'dueDate':deadline.isoformat(),'amount':due,'daysLate':(today_day-deadline).days})
+            alerts.sort(key=lambda r:(r['dueDate'],r['id']))
+            return alerts
+        if path == '/availability' and method == 'GET':
+            self.require(user, 'Nouvelle réservation', 'Modifier réservation', 'Calendrier', 'Réservations')
+            day, start, end = query.get('date',''), query.get('start',''), query.get('end','')
+            try:
+                valid_day = bool(re.fullmatch(r'\d{4}-\d{2}-\d{2}',day)) and date.fromisoformat(day).isoformat()==day
+            except ValueError:
+                valid_day = False
+            if not valid_day or any(not re.fullmatch(r'([01]\d|2[0-3]):[0-5]\d',t) for t in (start,end)):
+                raise APIError('Date ou heures invalides pour la disponibilité.')
+            salles=query.get('salles','').split(',')
+            if not salles or len(salles)>3 or len(set(salles))!=len(salles) or any(s not in self.rules.SALLES for s in salles):
+                raise APIError('Sélectionnez une ou plusieurs salles.')
+            exclude=int(query.get('exclude') or 0)
+            if exclude: self.existing(conn,'reservations',exclude)
+            candidate={'date_evenement':day,'heure_debut':start,'heure_fin':end,'with_violoniste':int(query.get('violoniste')=='1'),
+                       'with_sono':int(query.get('sono')=='1'),'violoniste_date':query.get('violoniste_date') or None,
+                       'violoniste_heure_debut':query.get('violoniste_start') or None,'violoniste_heure_fin':query.get('violoniste_end') or None}
+            violin_hall=next((s for s in salles if s!='Rayhane' and self.rules.is_eligible_for_free_violoniste(s,f'{start}-{end}')),None) if candidate['with_violoniste'] else None
+            rooms=[]
+            for salle in salles:
+                room=dict(candidate,salle=salle,with_violoniste=int(bool(candidate['with_violoniste'] and salle==violin_hall)))
+                ok,message=self.rules.validate_reservation(room,exclude or None,set(salles)==set(self.rules.SALLES))
+                if candidate['with_violoniste'] and violin_hall is None:
+                    ok,message=False,"Aucune salle sélectionnée ne donne droit à l'heure de violoniste offerte."
+                rooms.append({'salle':salle,'available':ok,'message':message})
+            return {'available':all(r['available'] for r in rooms),'rooms':rooms,'checkedAt':datetime.now(timezone.utc).isoformat()}
         if path == '/cloud/agents':
             self.require_admin(user)
             if method == 'GET':
@@ -605,11 +657,14 @@ class Application:
                     data.setdefault('date_signature', date.today().isoformat())
                     data['dossier_traite_par'] = (user.get('prenom', '') + ' ' + user['nom']).strip()
                     # All availability checks and all inserts share BEGIN IMMEDIATE.
+                    violin_hall=next((s for s in salles if s!='Rayhane' and self.rules.is_eligible_for_free_violoniste(s,f"{data['heure_debut']}-{data['heure_fin']}")),None) if data.get('with_violoniste') else None
+                    if data.get('with_violoniste') and violin_hall is None:
+                        raise APIError("Aucune salle sélectionnée ne donne droit à l'heure de violoniste offerte.")
                     for salle in salles:
-                        self.validate_reservation(dict(data, salle=salle), complexe=set(salles) == set(self.rules.SALLES))
+                        self.validate_reservation(dict(data, salle=salle, with_violoniste=int(bool(data.get('with_violoniste') and salle==violin_hall))), complexe=set(salles) == set(self.rules.SALLES))
                     result = []
                     for salle in salles:
-                        row = dict(data, salle=salle)
+                        row = dict(data, salle=salle, with_violoniste=int(bool(data.get('with_violoniste') and salle==violin_hall)))
                         new_id, _ = self.database.insert_reservation_with_bon(row, prefix='TMP' if row.get('is_temporaire') else 'BON')
                         result.append(self.existing(conn, table, new_id))
                     return result
@@ -630,6 +685,8 @@ class Application:
                     raise APIError('Jours invalides : 0=lundi, …, 6=dimanche.')
                 if candidate.get('date_debut') and candidate.get('date_fin') and candidate['date_debut'] > candidate['date_fin']:
                     raise APIError('La fin de la période précède le début.')
+                if candidate.get('pause_min_heures') is not None and float(candidate['pause_min_heures']) not in (2,3):
+                    raise APIError('La pause entre deux locations doit être de 2 ou 3 heures.')
             if resource in ('pointage', 'employee-payments'):
                 employee_id = data.get('employee_id', old.get('employee_id') if method == 'PUT' else None)
                 self.existing(conn, 'employees', employee_id)

@@ -106,11 +106,13 @@ class CloudTests(unittest.TestCase):
     def test_publication_older_copy_does_not_replace_newer_and_outbox_once(self):
         pg=MemoryPG();first=self.copy();self.publish(pg,*first)
         self.assertEqual(len(pg.outbox),0)
-        self.create();second=self.copy();self.publish(pg,*second)
-        self.assertEqual(len(pg.outbox),1)
+        self.create(self.reservation(acompte1=100));second=self.copy();self.publish(pg,*second)
+        self.assertEqual(len(pg.outbox),2)
+        titles=[json.loads(args[2])['title'] for args in pg.outbox.values()]
+        self.assertEqual(sorted(titles),['Nouvelle réservation Marassim','Paiement reçu Marassim'])
         replay=self.publish(pg,*first)
         self.assertFalse(replay['published']);self.assertEqual(pg.snapshot[1],second[0]['sequence'])
-        self.assertEqual(len(pg.outbox),1)
+        self.assertEqual(len(pg.outbox),2)
     def test_incomplete_copy_leaves_previous_snapshot_unchanged(self):
         pg=MemoryPG();self.publish(pg,*self.copy());previous=pg.snapshot
         meta,data,encrypted=self.copy();key=self.publish(pg,meta,data,encrypted,False)
@@ -142,6 +144,7 @@ class CloudTests(unittest.TestCase):
                     cookie=response.headers['Set-Cookie'];user=json.load(response)['user']
                     self.assertIn('HttpOnly',cookie);self.assertIn('Secure',cookie);self.assertNotIn('password',user)
                 with fetch('/forecast',cookie=cookie) as response:self.assertTrue(json.load(response)['summary'])
+                with fetch('/payment-alerts',cookie=cookie) as response:self.assertIsInstance(json.load(response),list)
                 with fetch('/exports/contract/1',cookie=cookie) as response:self.assertTrue(json.load(response)['base64'])
                 for resource in ('charges','charges-omar','recettes-omar','employees','pointage','employee-payments','rules','reception','users'):
                     with fetch('/'+resource,cookie=cookie) as response:

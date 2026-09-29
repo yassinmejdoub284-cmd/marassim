@@ -1,4 +1,4 @@
-const CACHE='marassim-shell-3.3.0';
+const CACHE='marassim-shell-3.4.0';
 const SHELL=['/','/manifest.webmanifest','/icon.svg','/icon-256.png','/icon-512.png','/offline.html'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('marassim-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));

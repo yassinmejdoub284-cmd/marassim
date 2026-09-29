@@ -11,6 +11,7 @@ import unittest
 import urllib.request
 import uuid
 import zipfile
+from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -114,15 +115,81 @@ class ServerTests(unittest.TestCase):
 
     def test_edit_checks_original_booking_rules(self):
         row = self.create()
+        updated=self.call('PUT', f"/reservations/{row['id']}", {'heure_debut': '17:00', 'heure_fin': '19:00', 'revision': row['revision']})
+        self.assertEqual(updated['heure_debut'],'17:00')
         with self.assertRaises(APIError):
-            self.call('PUT', f"/reservations/{row['id']}", {'heure_debut': '17:00', 'heure_fin': '19:00', 'revision': row['revision']})
-        self.assertEqual(self.call('GET', f"/reservations/{row['id']}")['heure_debut'], '21:00')
+            self.call('PUT', f"/reservations/{row['id']}", {'heure_debut': '99:00', 'revision': updated['revision']})
 
     def test_rule_configuration_is_authoritative(self):
-        self.call('POST', '/rules', {'nom': 'Créneau spécifique', 'salle': 'Almes', 'creneaux': '17:00-20:00', 'jours': '0,1,2,3,4,5,6', 'pause_min_heures': 1, 'actif': 1})
+        self.call('POST', '/rules', {'nom': 'Créneau spécifique', 'salle': 'Almes', 'creneaux': '17:00-20:00', 'jours': '0,1,2,3,4,5,6', 'pause_min_heures': 2, 'actif': 1})
         data = self.reservation(); data.update(heure_debut='17:00', heure_fin='20:00')
         self.assertEqual(self.create(data)['heure_debut'], '17:00')
         with self.assertRaises(APIError): self.create()
+
+    def test_availability_free_hours_same_room_pause_and_rule_two_hours(self):
+        day='2027-02-11'
+        request=self.reservation();request.update(date_evenement=day,heure_debut='10:00',heure_fin='12:00')
+        self.assertTrue(self.call('GET',f'/availability?date={day}&salles=Almes&start=10:00&end=12:00')['available'])
+        self.create(request)
+        for start,end in (('10:00','12:00'),('11:00','13:00'),('14:00','16:00')):
+            self.assertFalse(self.call('GET',f'/availability?date={day}&salles=Almes&start={start}&end={end}')['available'])
+            with self.assertRaises(APIError):self.create(dict(request,heure_debut=start,heure_fin=end))
+        self.assertTrue(self.call('GET',f'/availability?date={day}&salles=Chichkhane&start=10:00&end=12:00')['available'])
+        self.call('POST','/rules',{'nom':'Deux heures','salle':'Almes','pause_min_heures':2,'actif':1})
+        self.assertTrue(self.call('GET',f'/availability?date={day}&salles=Almes&start=14:00&end=16:00')['available'])
+        self.create(dict(request,heure_debut='14:00',heure_fin='16:00'))
+
+    def test_free_violin_entitlement_and_weekend(self):
+        def booking(day,salle,start,end):
+            data=self.reservation();data.update(date_evenement=day,salle=salle,heure_debut=start,heure_fin=end,with_violoniste=1,violoniste_heure_debut='16:00',violoniste_heure_fin='17:00')
+            return data
+        with self.assertRaises(APIError):self.create(booking('2027-01-16','Almes','19:00','22:00'))
+        with self.assertRaises(APIError):self.create(booking('2027-01-17','Chichkhane','19:00','22:00'))
+        with self.assertRaises(APIError):self.create(booking('2027-01-18','Chichkhane','15:00','18:00'))
+        self.assertEqual(self.create(booking('2027-01-18','Almes','15:00','18:00'))['salle'],'Almes')
+        with self.assertRaises(APIError):self.create(dict(booking('2027-01-19','Almes','12:00','15:00'),violoniste_heure_fin='18:00'))
+        with self.assertRaises(APIError):self.create(dict(booking('2027-01-19','Almes','12:00','15:00'),violoniste_date='2027-01-23'))
+        self.call('POST','/rules',{'nom':'Pause seule','salle':'Chichkhane','pause_min_heures':2,'actif':1})
+        self.assertEqual(self.create(booking('2027-01-19','Chichkhane','12:00','15:00'))['salle'],'Chichkhane')
+
+    def test_availability_rejects_malformed_date(self):
+        with self.assertRaises(APIError):
+            self.call('GET','/availability?date=2027-02-30&salles=Almes&start=10:00&end=12:00')
+
+    def test_next_day_reservation_respects_pause_after_midnight(self):
+        data=self.reservation();data.update(date_evenement='2027-02-11',heure_debut='21:00',heure_fin='01:00')
+        self.create(data)
+        after=dict(data,date_evenement='2027-02-12',heure_debut='03:00',heure_fin='05:00')
+        self.assertFalse(self.call('GET','/availability?date=2027-02-12&salles=Almes&start=03:00&end=05:00')['available'])
+        with self.assertRaises(APIError):self.create(after)
+        after.update(heure_debut='04:00',heure_fin='06:00')
+        self.assertTrue(self.call('GET','/availability?date=2027-02-12&salles=Almes&start=04:00&end=06:00')['available'])
+        self.create(after)
+
+    def test_multihall_contract_has_only_one_free_violin_hour(self):
+        data=self.reservation();data.update(date_evenement='2027-01-22',heure_debut='15:00',heure_fin='18:00',
+                                            salles=['Chichkhane','Almes'],with_violoniste=1,
+                                            violoniste_heure_debut='16:00',violoniste_heure_fin='17:00')
+        availability=self.call('GET','/availability?date=2027-01-22&salles=Chichkhane,Almes&start=15:00&end=18:00&violoniste=1&violoniste_start=16:00&violoniste_end=17:00')
+        self.assertTrue(availability['available'])
+        created=self.call('POST','/reservations',data)
+        self.assertEqual(sum(int(r['with_violoniste']) for r in created),1)
+        self.assertEqual(next(r['salle'] for r in created if r['with_violoniste']),'Almes')
+
+    def test_booking_payment_notifications_and_overdue_balance(self):
+        day=(date.today()+timedelta(days=30)).isoformat()
+        late=(date.today()-timedelta(days=1)).isoformat()
+        baseline=self.call('GET','/notifications')['latest']
+        booking=self.create(dict(self.reservation(),date_evenement=day,date_reste=late,acompte1=100,date_acompte1=date.today().isoformat()))
+        events=self.call('GET',f'/notifications?after={baseline}')['items']
+        self.assertEqual(sorted(r['kind'] for r in events),['payment','reservation'])
+        self.assertEqual(next(r['amount'] for r in events if r['kind']=='payment'),100)
+        alerts=self.call('GET','/payment-alerts')
+        self.assertEqual(len(alerts),1);self.assertEqual(alerts[0]['amount'],900)
+        self.call('POST',f"/reservations/{booking['id']}/payments",{'montant':200,'methode':'Espèce','revision':booking['revision']})
+        events=self.call('GET',f'/notifications?after={baseline}')['items']
+        self.assertEqual(len(events),3);self.assertEqual(events[-1]['kind'],'payment');self.assertEqual(events[-1]['amount'],200)
+        self.assertEqual(self.call('GET','/payment-alerts')[0]['amount'],700)
 
     def test_permissions_enforced_on_server_and_sessions_revoked(self):
         new = self.call('POST', '/users', {'username': 'limited', 'password': 'test-password-123', 'nom': 'Employé', 'role': 'employe', 'modules': ['Calendrier']})

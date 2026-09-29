@@ -20,6 +20,7 @@ constantes / fonctions ci-dessous — tout le reste de l'application
 (gui.py, database.py) appelle uniquement `validate_reservation()`.
 """
 from datetime import datetime, timedelta
+import re
 
 SALLES = ["Almes", "Chichkhane", "Rayhane"]
 
@@ -33,8 +34,8 @@ SALLE_COLORS = {
 
 SALLE_INITIALES = {"Almes": "A", "Chichkhane": "C", "Rayhane": "R"}
 
-# Créneaux fixes autorisés pour les salles couvertes (Almes / Chichkhane)
-SALLE_SLOTS = ["15:00-18:00", "21:00-01:00"]
+# Les horaires sont libres par défaut. Une règle peut restreindre les créneaux.
+SALLE_SLOTS = []
 
 # Pause obligatoire entre deux réservations de la MÊME salle (heures)
 PAUSE_SALLE_HEURES = 3
@@ -56,6 +57,8 @@ GAZON_BLOCK_WINDOW = ("18:00", "21:00")
 
 
 def _to_minutes(hhmm: str) -> int:
+    if not isinstance(hhmm, str) or not re.fullmatch(r'([01]\d|2[0-3]):[0-5]\d', hhmm):
+        raise ValueError('Heure invalide : utilisez HH:MM.')
     h, m = hhmm.split(":")
     return int(h) * 60 + int(m)
 
@@ -81,25 +84,34 @@ def _overlaps(startA, endA, startB, endB, pause_minutes=0):
     return aS < bE and bS < aE
 
 
-def check_salle_slot_conflict(db, salle, date_evenement, heure_debut, heure_fin, exclude_id=None):
-    """Vérifie qu'aucune réservation existante de la même salle, au même jour,
-    ne chevauche le créneau demandé (avec la pause de 3h exigée)."""
+def check_salle_slot_conflict(db, salle, date_evenement, heure_debut, heure_fin, exclude_id=None, pause_hours=None):
+    """Vérifie la salle et sa pause, y compris autour d'un passage de minuit."""
     from database import get_reservations_for_date
 
-    existing = get_reservations_for_date(date_evenement, salle)
-    for res in existing:
-        if exclude_id and res["id"] == exclude_id:
-            continue
-        if _overlaps(heure_debut, heure_fin, res["heure_debut"], res["heure_fin"],
-                     pause_minutes=0):
-            return False, (f"Conflit : la salle {salle} est déjà réservée le "
-                            f"{date_evenement} de {res['heure_debut']} à {res['heure_fin']}.")
-        # vérifie la pause de 3h même si pas de chevauchement direct
-        if _overlaps(heure_debut, heure_fin, res["heure_debut"], res["heure_fin"],
-                     pause_minutes=PAUSE_SALLE_HEURES * 60):
-            return False, (f"Conflit : il faut au moins {PAUSE_SALLE_HEURES}h de pause "
-                            f"entre deux réservations de {salle} (réservation existante "
-                            f"{res['heure_debut']}-{res['heure_fin']} le {date_evenement}).")
+    if pause_hours is None:
+        rule = find_matching_rule(salle, date_evenement, heure_debut, heure_fin)
+        pause_hours = rule.get('pause_min_heures') if rule else PAUSE_SALLE_HEURES
+    pause = max(2, min(3, float(pause_hours or PAUSE_SALLE_HEURES)))
+    start, end = _interval_minutes(heure_debut, heure_fin)
+    event_day = datetime.strptime(date_evenement, '%Y-%m-%d')
+    for offset in (-1, 0, 1):
+        existing_day = (event_day + timedelta(days=offset)).strftime('%Y-%m-%d')
+        for res in get_reservations_for_date(existing_day, salle):
+            if exclude_id and res['id'] == exclude_id:
+                continue
+            old_start, old_end = _interval_minutes(res['heure_debut'], res['heure_fin'])
+            old_start += offset * 1440
+            old_end += offset * 1440
+            old_rule = find_matching_rule(salle, existing_day, res['heure_debut'], res['heure_fin'])
+            old_pause = max(2, min(3, float(old_rule.get('pause_min_heures') or 3))) if old_rule else PAUSE_SALLE_HEURES
+            effective_pause = max(pause, old_pause)
+            if start < old_end and old_start < end:
+                return False, (f"Conflit : la salle {salle} est déjà réservée le "
+                               f"{existing_day} de {res['heure_debut']} à {res['heure_fin']}.")
+            if start < old_end + int(effective_pause * 60) and old_start < end + int(effective_pause * 60):
+                return False, (f"Conflit : il faut au moins {effective_pause:g}h de pause "
+                               f"entre deux réservations de {salle} (réservation existante "
+                               f"{res['heure_debut']}-{res['heure_fin']} le {existing_day}).")
     return True, ""
 
 
@@ -125,10 +137,9 @@ def check_violoniste_slot(db, date_evenement, heure_debut, heure_fin, with_sono,
     if e > max_e:
         return False, f"L'option violoniste doit se terminer au plus tard à {VIOLONISTE_HEURE_FIN_MAX}."
 
-    if with_sono:
-        d = datetime.strptime(date_evenement, "%Y-%m-%d")
-        if d.weekday() in JOURS_INTERDITS_VIOLONISTE_AVEC_SONO:
-            return False, "Avec sono, l'option violoniste n'est pas disponible le samedi ni le dimanche."
+    d = datetime.strptime(date_evenement, "%Y-%m-%d")
+    if d.weekday() in JOURS_INTERDITS_VIOLONISTE_AVEC_SONO:
+        return False, "L'heure de violoniste offerte n'est pas disponible le samedi ni le dimanche."
 
     from database import get_reservations_for_date
     existing_gazon = get_reservations_for_date(date_evenement, "Rayhane")
@@ -145,35 +156,8 @@ def check_violoniste_slot(db, date_evenement, heure_debut, heure_fin, with_sono,
 
 def check_gazon_reception(db, date_evenement, heure_debut, heure_fin, with_sono,
                            exclude_id=None):
-    """Valide une réservation principale de l'espace Gazon (réception),
-    et interdit Almes/Chichkhane sur la fenêtre 18h-21h ce jour-là."""
-    e = _to_minutes(heure_fin) if _to_minutes(heure_fin) > _to_minutes(heure_debut) else _to_minutes(heure_fin) + 1440
-    max_e = _to_minutes(GAZON_RECEPTION_HEURE_FIN_MAX)
-    if e > max_e:
-        return False, f"Une réception dans l'espace Gazon doit se terminer au plus tard à {GAZON_RECEPTION_HEURE_FIN_MAX}."
-    if not with_sono:
-        return False, "Une réception dans l'espace Gazon nécessite la sono."
-
-    from database import get_reservations_for_date
-    existing_gazon = get_reservations_for_date(date_evenement, "Rayhane")
-    for res in existing_gazon:
-        if exclude_id and res["id"] == exclude_id:
-            continue
-        if _overlaps(heure_debut, heure_fin, res["heure_debut"], res["heure_fin"],
-                     pause_minutes=PAUSE_GAZON_HEURES * 60):
-            return False, "L'espace Gazon n'est pas libre à cette date/heure."
-
-    # Vérifie qu'Almes/Chichkhane ne sont pas déjà réservées sur 18h-21h ce jour
-    for autre_salle in ("Almes", "Chichkhane"):
-        existing = get_reservations_for_date(date_evenement, autre_salle)
-        for res in existing:
-            if _overlaps(res["heure_debut"], res["heure_fin"],
-                         GAZON_BLOCK_WINDOW[0], GAZON_BLOCK_WINDOW[1], pause_minutes=0):
-                return False, (f"Impossible : {autre_salle} est déjà réservée le {date_evenement} "
-                                f"sur le créneau {res['heure_debut']}-{res['heure_fin']}, "
-                                f"qui chevauche la fenêtre {GAZON_BLOCK_WINDOW[0]}-{GAZON_BLOCK_WINDOW[1]} "
-                                f"bloquée par la réception Gazon.")
-    return True, ""
+    """Valide la disponibilité de Rayhane avec la même pause que les salles."""
+    return check_salle_slot_conflict(db, 'Rayhane', date_evenement, heure_debut, heure_fin, exclude_id)
 
 
 def check_salle_blocked_by_gazon_reception(db, salle, date_evenement, heure_debut, heure_fin,
@@ -212,6 +196,28 @@ def validate_reservation(res: dict, exclude_id=None, complexe=False):
     heure_debut = res["heure_debut"]
     heure_fin = res["heure_fin"]
 
+    try:
+        start, end = _interval_minutes(heure_debut, heure_fin)
+    except (ValueError, AttributeError):
+        return False, 'Heures invalides : utilisez HH:MM.'
+    if not 0 <= start < 1440 or not start < end <= start + 1440 or heure_debut == heure_fin:
+        return False, 'Créneau horaire invalide.'
+    if res.get('with_violoniste'):
+        if salle == 'Rayhane' or not is_eligible_for_free_violoniste(salle, f'{heure_debut}-{heure_fin}'):
+            return False, "L'heure de violoniste offerte n'est pas incluse pour Chichkhane de 15h à 18h ni pour un contrat Rayhane."
+        v_debut, v_fin = res.get('violoniste_heure_debut'), res.get('violoniste_heure_fin')
+        if not v_debut or not v_fin:
+            return False, "Précise l'heure de début et de fin du violoniste."
+        try:
+            vs, ve = _interval_minutes(v_debut, v_fin)
+            v_date = datetime.strptime(res.get('violoniste_date') or date_evenement, '%Y-%m-%d')
+        except (ValueError, TypeError):
+            return False, 'Date ou heures du violoniste invalides.'
+        if not 0 <= vs < 1440 or ve - vs != 60 or ve > _to_minutes(VIOLONISTE_HEURE_FIN_MAX):
+            return False, "L'heure offerte à Rayhane doit durer exactement une heure et finir au plus tard à 21h."
+        if v_date.weekday() in (5, 6):
+            return False, "L'heure de violoniste offerte n'est pas disponible le samedi ni le dimanche."
+
     if salle not in SALLES:
         return False, f"Salle inconnue : {salle}"
 
@@ -229,19 +235,14 @@ def validate_reservation(res: dict, exclude_id=None, complexe=False):
                                              exclude_id)
         if not ok:
             return ok, msg
+        if res.get('with_violoniste'):
+            return check_violoniste_conflicts(res.get('violoniste_date') or date_evenement,
+                                              v_debut, v_fin, exclude_id=exclude_id)
         return True, "OK"
 
     if salle in ("Almes", "Chichkhane"):
-        slot = f"{heure_debut}-{heure_fin}"
-        if slot not in SALLE_SLOTS:
-            return False, (f"Les salles Almes et Chichkhane ne peuvent être réservées que "
-                            f"sur les créneaux fixes : {', '.join(SALLE_SLOTS)}.")
         ok, msg = check_salle_slot_conflict(None, salle, date_evenement, heure_debut, heure_fin,
                                              exclude_id)
-        if not ok:
-            return ok, msg
-        ok, msg = check_salle_blocked_by_gazon_reception(None, salle, date_evenement,
-                                                           heure_debut, heure_fin, exclude_id)
         if not ok:
             return ok, msg
 
@@ -253,18 +254,9 @@ def validate_reservation(res: dict, exclude_id=None, complexe=False):
 
     # Option violoniste (facultative, s'ajoute à une réservation Almes/Chichkhane)
     if res.get("with_violoniste"):
-        slot = f"{heure_debut}-{heure_fin}" if salle in ("Almes", "Chichkhane") else None
-        if slot and not is_eligible_for_free_violoniste(salle, slot):
-            return False, ("L'heure gratuite de violoniste n'est pas incluse pour les "
-                            "contrats Chichkhane du créneau 15h-18h.")
-        v_debut = res.get("violoniste_heure_debut")
-        v_fin = res.get("violoniste_heure_fin")
-        if not v_debut or not v_fin:
-            return False, "Précise l'heure de début/fin de l'option violoniste."
-        # Utiliser la date dédiée Rayhane si renseignée, sinon la date événement
         v_date = res.get("violoniste_date") or date_evenement
-        ok, msg = check_violoniste_slot(None, v_date, v_debut, v_fin,
-                                         res.get("with_sono", 0), exclude_id)
+        ok, msg = check_violoniste_conflicts(v_date, v_debut, v_fin,
+                                             exclude_id=exclude_id)
         if not ok:
             return ok, msg
 
@@ -388,9 +380,9 @@ def describe_rule(rule):
         bits.append(f"pause {rule['pause_min_heures']}h")
     if rule.get("heure_fin_max"):
         bits.append(f"fin ≤ {rule['heure_fin_max']}")
-    if rule.get("violon_gratuit"):
+    if rule.get("violon_debut_min") or rule.get("violon_fin_max"):
         w = f"{rule.get('violon_debut_min') or '…'}–{rule.get('violon_fin_max') or '…'}"
-        bits.append(f"violon offert ({w})")
+        bits.append(f"fenêtre du violon ({w})")
     return " | ".join(bits)
 
 
@@ -457,26 +449,13 @@ def _validate_with_rule(rule, res, exclude_id=None):
         return False, prefix + "la sono est obligatoire pour cette réservation."
 
     # ── Pause minimale entre deux réservations de la même salle ───
-    pause = float(rule.get("pause_min_heures") or 0)
-    from database import get_reservations_for_date
-    for autre in get_reservations_for_date(date_evenement, salle):
-        if exclude_id and autre["id"] == exclude_id:
-            continue
-        if _overlaps(heure_debut, heure_fin, autre["heure_debut"], autre["heure_fin"], 0):
-            return False, (f"Conflit : {salle} est déjà réservée le {date_evenement} "
-                           f"de {autre['heure_debut']} à {autre['heure_fin']}.")
-        if pause > 0 and _overlaps(heure_debut, heure_fin,
-                                   autre["heure_debut"], autre["heure_fin"],
-                                   pause_minutes=int(pause * 60)):
-            return False, (prefix + f"il faut au moins {pause}h de pause entre deux "
-                                    f"réservations de {salle} (existante "
-                                    f"{autre['heure_debut']}-{autre['heure_fin']}).")
+    ok, message = check_salle_slot_conflict(None, salle, date_evenement, heure_debut, heure_fin,
+                                             exclude_id, rule.get('pause_min_heures'))
+    if not ok:
+        return False, prefix + message
 
     # ── Heure de violoniste offerte ───────────────────────────────
     if res.get("with_violoniste"):
-        if not rule.get("violon_gratuit"):
-            return False, (prefix + "l'heure de violoniste offerte n'est pas incluse "
-                                    "pour ce type de réservation.")
         v_debut = res.get("violoniste_heure_debut")
         v_fin = res.get("violoniste_heure_fin")
         if not v_debut or not v_fin:

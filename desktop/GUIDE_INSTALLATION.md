@@ -4,7 +4,11 @@ La nouvelle interface conserve les modules de l’application Python et réutili
 
 ## Installation Windows
 
-Installer `Marassim-Setup-3.3.0.exe` sur les cinq PC Windows 64 bits. L’installateur contient Electron, React et le moteur métier : Python et Node.js ne sont pas nécessaires sur ces PC.
+Après sa compilation et sa validation, installer `Marassim-Setup-3.4.0.exe` sur les cinq PC Windows 64 bits. L’installateur contiendra Electron, React et le moteur métier : Python et Node.js ne seront pas nécessaires sur ces PC. Le code Web publié sur GitHub ne constitue pas cet installateur.
+
+### Nouveautés 3.4.0
+
+Le formulaire de réservation vérifie la date, les salles et les heures ; le serveur revérifie au moment d’enregistrer pour éviter les conflits entre postes. Les horaires sont libres par défaut, avec une pause de 3 heures entre deux locations de la même salle, configurable à 2 heures dans les règles. L’heure gratuite de violoniste à Rayhane suit les exceptions Chichkhane 15 h–18 h et samedi/dimanche. La cloche signale les réservations, les paiements et les retards ; le nouveau module **Paiements en retard** est consultable aussi sur le Web. Voir `GUIDE_RESERVATIONS.md`.
 
 ### Nouveautés 3.3.0
 
@@ -16,7 +20,7 @@ Thème clair, sombre ou automatique ; cloche et notifications de nouvelles rése
 
 Le menu **Pilotage** propose **Rapports avancés** et **Cash-flow prévu**, avec exports Excel. Le solde des réservations confirmées est prévu **15 jours avant l’événement**, déduction faite des acomptes enregistrés. Les dépenses futures se renseignent dans Mouvements planifiés. Consulter `GUIDE_RAPPORTS.md` pour les hypothèses, filtres et échéances.
 
-Pour mettre à jour depuis 3.0.1, 3.1.0 ou 3.2.0, créer une sauvegarde, fermer Marassim sur les cinq postes, arrêter la tâche `Marassim-Serveur` et le processus `MarassimServer.exe` sur le serveur, puis installer 3.3.0 et relancer Marassim. Installer la même version sur les quatre clients. Les nouvelles tables, dont le détail des sorties de soirées, sont ajoutées à la base utilisée par le serveur ; les réservations, paiements et documents existants restent conservés. Donner les permissions de pilotage aux comptes concernés dans Gestion des accès.
+Pour mettre à jour depuis 3.0.1 à 3.3.0, créer une sauvegarde, fermer Marassim sur les cinq postes, arrêter la tâche `Marassim-Serveur` et le processus `MarassimServer.exe` sur le serveur, puis installer 3.4.0 et relancer Marassim. Installer la même version sur les quatre clients. Les nouvelles colonnes de notifications sont ajoutées à la base utilisée par le serveur ; les réservations, paiements et documents existants restent conservés. Donner les permissions nécessaires aux comptes concernés dans Gestion des accès.
 
 ### Mise à jour du logo depuis la version 3.0.0
 

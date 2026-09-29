@@ -165,7 +165,7 @@ def _business(conn,templates,user,path,query):
             application=Application.__new__(Application)
             application.database=database; application.access=access_control; application.rules=rules
             application.all_modules=access_control.ALL_MODULES+analytics.REPORT_MODULES; application.templates=root
-            permitted=('/reports','/forecast','/reservations','/journal','/employees','/charges','/charges-omar','/recettes-omar','/employee-payments','/pointage','/rules','/reception','/exports','/notifications','/users')
+            permitted=('/reports','/forecast','/reservations','/journal','/employees','/charges','/charges-omar','/recettes-omar','/employee-payments','/pointage','/rules','/reception','/exports','/notifications','/payment-alerts','/users')
             if not any(path==p or path.startswith(p+'/') for p in permitted): raise APIError('Ce module n’est pas disponible en ligne.',403)
             return application.business_route(conn,user,'GET',path,query,{})
     finally: active_connection.reset(original)

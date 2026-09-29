@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from app import APIError
 
 def may_receive(user):
-    return user['role']=='admin' or any(m in user['modules'] for m in ('Réservations','Calendrier','Rapports avancés','Cash-flow prévu'))
+    return user['role']=='admin' or any(m in user['modules'] for m in ('Réservations','Calendrier','Nouvelle réservation','Ajouter un acompte','Rapports avancés','Cash-flow prévu'))
 
 def push_route(pg,user,method,path,payload):
     if not may_receive(user): raise APIError('Notifications de réservation non autorisées.',403)
@@ -35,12 +35,14 @@ def queue_push(cursor,new,old,secret):
     finally: previous.close()
     rows=new.execute('SELECT * FROM reservation_notifications WHERE id>? ORDER BY id',(last,)).fetchall()
     if not rows: return
-    title='Nouvelle réservation Marassim' if len(rows)==1 else f'{len(rows)} nouvelles réservations Marassim'
-    body={'title':title,'body':f"{rows[-1]['hall']} · {rows[-1]['event_date']}",'url':'/','tag':'marassim-reservation-'+str(rows[-1]['id'])}
-    for row in new.execute('SELECT * FROM users WHERE actif=1'):
-        user=public_user(new,row)
-        if may_receive(user):
-            identifier=f"{row['id']}:{rows[-1]['id']}"
+    recipients=[row for row in new.execute('SELECT * FROM users WHERE actif=1') if may_receive(public_user(new,row))]
+    for event in rows:
+        payment='kind' in event.keys() and event['kind']=='payment'
+        body={'title':'Paiement reçu Marassim' if payment else 'Nouvelle réservation Marassim',
+              'body':f"{event['hall']} · {event['event_date']}"+(f" · {float(event['amount'] or 0):.3f} DT" if payment else ''),
+              'url':'/','tag':'marassim-event-'+str(event['id'])}
+        for row in recipients:
+            identifier=f"{row['id']}:{event['id']}"
             cursor.execute('INSERT INTO online_push_outbox(id,user_id,body) VALUES (%s,%s,%s::jsonb) ON CONFLICT(id) DO NOTHING',(identifier,row['id'],json.dumps(body)))
 
 def deliver_push():

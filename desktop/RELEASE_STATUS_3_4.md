@@ -1,0 +1,7 @@
+# État de livraison Marassim 3.4.0
+
+Le code source de la version 3.4.0 contient le contrôle de disponibilité, les horaires libres, la pause de 2 ou 3 heures entre deux locations de la même salle (même après minuit), les exceptions de l’heure gratuite de violoniste, les alertes des paiements en retard, les événements de paiement et les corrections de l’interface mobile. La consultation Web reste en lecture seule. Les modèles Word français et arabe et les exports Excel existants ne sont pas remplacés.
+
+Les tests Python du moteur source, du cloud et des rapports, les tests Node PWA, la construction React locale effectuée avant la dernière correction CSS, la construction Web de production et l’inspection du formulaire à 390 px ont réussi. Le test du serveur compilé 3.4.0 échoue pour l’instant parce que `server-dist/MarassimServer/MarassimServer.exe` contient encore la version 3.3.0. L’ancien installateur `release/Marassim-Setup-3.3.0.exe` reste inchangé et ne contient **aucune** des nouveautés 3.4.0.
+
+La reconstruction du serveur Windows a été arrêtée par le contrôle automatique d’approbation : la limite d’usage a empêché l’examen de l’action. Il reste à reconstruire ce serveur, relancer le test du binaire, reconstruire l’interface locale, créer l’installateur `Marassim-Setup-3.4.0.exe`, vérifier son contenu et son SHA-256, puis vérifier la mise à jour du site Vercel. N’installez pas et ne diffusez pas une version étiquetée 3.4.0 avant ces vérifications. La base réelle du serveur et les bases des postes n’ont pas été modifiées pendant ce développement.

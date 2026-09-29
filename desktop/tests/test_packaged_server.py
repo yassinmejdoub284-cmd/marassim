@@ -12,6 +12,7 @@ import unittest
 import urllib.request
 import uuid
 import zipfile
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -34,7 +35,9 @@ class PackagedServerTests(unittest.TestCase):
                         context.check_hostname = False
                         try:
                             with urllib.request.urlopen(f'https://127.0.0.1:{port}/api/health', context=context, timeout=1) as response:
-                                self.assertTrue(json.loads(response.read())['ok'])
+                                health=json.loads(response.read())
+                                self.assertTrue(health['ok'])
+                                self.assertEqual(health['version'],'3.4.0')
                             break
                         except OSError:
                             pass
@@ -50,7 +53,10 @@ class PackagedServerTests(unittest.TestCase):
                     with urllib.request.urlopen(req, context=context, timeout=10) as response: return json.loads(response.read())
                 request('/setup', 'POST', {'username': 'binary-test', 'password': 'binary-test-password'})
                 token = request('/login', 'POST', {'username': 'binary-test', 'password': 'binary-test-password'})['token']
+                availability='/availability?date=2027-04-15&salles=Almes&start=15:00&end=18:00'
+                self.assertTrue(request(availability,token=token)['available'])
                 row = request('/reservations', 'POST', {'salle': 'Almes', 'date_evenement': '2027-04-15', 'heure_debut': '15:00', 'heure_fin': '18:00', 'nom_client': 'Test binaire', 'forfait': 1000}, token)[0]
+                self.assertFalse(request(availability,token=token)['available'])
                 notifications = request('/notifications?after=0',token=token)
                 self.assertEqual(len(notifications['items']),1)
                 self.assertTrue(notifications['serverId'])
@@ -68,6 +74,11 @@ class PackagedServerTests(unittest.TestCase):
                 request('/forecast-items','POST',{'due_date':'2027-04-01','designation':'Loyer test','direction':'out','amount':100},token)
                 self.assertEqual(request('/forecast?start=2027-03-01&end=2027-04-30',token=token)['summary']['expense'],100)
                 self.assertEqual(request('/reports?start=2027-04-01&end=2027-04-30',token=token)['summary']['booked'],1000)
+                late=(date.today()-timedelta(days=1)).isoformat()
+                request('/reservations','POST',{'salle':'Chichkhane','date_evenement':'2028-01-10','heure_debut':'10:00','heure_fin':'13:00','nom_client':'Solde test','forfait':500,'acompte1':100,'date_reste':late},token)
+                self.assertEqual(request('/payment-alerts',token=token)[0]['amount'],400)
+                kinds=[item['kind'] for item in request('/notifications?after=1',token=token)['items']]
+                self.assertEqual(sorted(kinds),['payment','reservation'])
                 for path in ['/exports/reports?start=2027-04-01&end=2027-04-30','/exports/forecast?start=2027-03-01&end=2027-04-30']:
                     self.assertGreater(len(request(path,token=token)['base64']),1000)
                 for path in [f"/exports/contract/{row['id']}", '/exports/calendar?year=2027&month=4', '/exports/journal?start=2027-04-01&end=2027-04-30&number=15']:

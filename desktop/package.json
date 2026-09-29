@@ -1,6 +1,6 @@
 {
   "name": "marassim-desktop",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "private": true,
   "description": "Marassim — gestion du complexe de réception en réseau local",
   "author": "Marassim",
@@ -60,6 +60,10 @@
       {
         "from": "GUIDE_CAISSE_OMAR.md",
         "to": "GUIDE_CAISSE_OMAR.md"
+      },
+      {
+        "from": "GUIDE_RESERVATIONS.md",
+        "to": "GUIDE_RESERVATIONS.md"
       }
     ],
     "win": {

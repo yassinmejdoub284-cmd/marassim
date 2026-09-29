@@ -31,7 +31,7 @@ pas écraser une copie plus récente. Une copie incomplète n'est jamais publié
 
 ## Activer un relais
 
-Installez Marassim 3.3.0 sur le serveur puis les quatre postes, après sauvegarde
+Une fois l’installateur 3.4.0 compilé et validé, installez-le sur le serveur puis les quatre postes, après sauvegarde
 et arrêt du serveur précédent. Sur un poste client avec Internet, connectez-vous
 comme administrateur, ouvrez **Réseau & sauvegardes → Synchronisation en ligne**.
 Entrez l'adresse HTTPS du site et la valeur `MARASSIM_SYNC_SECRET`. Configurez

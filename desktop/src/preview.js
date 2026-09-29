@@ -20,6 +20,22 @@ export const previewBridge = {
     if (path === '/me') return wrap(user);
     if (options.method && options.method !== 'GET') return Promise.resolve({ ok: false, error: 'L’aperçu est en lecture seule. Utilisez l’application Electron pour enregistrer.' });
     const url = new URL(path, 'http://preview.local');
+    if (url.pathname === '/availability') {
+      const date=url.searchParams.get('date'), start=url.searchParams.get('start'), end=url.searchParams.get('end'), selected=(url.searchParams.get('salles')||'').split(',');
+      const toMin=t=>Number(t.slice(0,2))*60+Number(t.slice(3));
+      const interval=(a,b)=>[toMin(a),toMin(b)+(toMin(b)<=toMin(a)?1440:0)];
+      const [a,b]=interval(start,end), requested=Date.parse(date+'T00:00:00Z');
+      const violin=url.searchParams.get('violoniste')==='1', violinDate=url.searchParams.get('violoniste_date')||date;
+      const violinWeekend=[0,6].includes(new Date(violinDate+'T12:00:00Z').getUTCDay());
+      const rooms=selected.map(salle=>{
+        const conflict=rows.find(r=>r.salle===salle&&r.id!==Number(url.searchParams.get('exclude'))&&(()=>{const offset=Math.round((Date.parse(r.date_evenement+'T00:00:00Z')-requested)/86400000);if(Math.abs(offset)>1)return false;const [c,d]=interval(r.heure_debut,r.heure_fin);return a<d+offset*1440+180&&c+offset*1440<b+180;})());
+        const violinBlocked=violin&&(violinWeekend||(selected.every(s=>s==='Rayhane'||s==='Chichkhane')&&start==='15:00'&&end==='18:00'));
+        return {salle,available:!conflict&&!violinBlocked,message:conflict?`${salle} déjà réservé à ${conflict.heure_debut}–${conflict.heure_fin}, pause de 3 h requise.`:violinBlocked?'Heure de violoniste offerte indisponible pour ce contrat ou ce jour.':'Disponible'};
+      });
+      return wrap({available:rooms.every(r=>r.available),rooms,checkedAt:new Date().toISOString()});
+    }
+    if (url.pathname === '/payment-alerts') return wrap([]);
+    if (url.pathname === '/notifications') return wrap({serverId:'preview',latest:0,items:[]});
     if (url.pathname === '/reports') return wrap(previewReport(rows,url.searchParams));
     if (url.pathname === '/forecast') return wrap(previewForecast(rows,url.searchParams));
     if (path === '/reservations') return wrap(rows);
